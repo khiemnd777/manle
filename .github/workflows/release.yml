@@ -1,0 +1,258 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing release tag to deploy, for example v2026.05.17 or v2026.05.17-hotfix'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  prepare:
+    name: Resolve Release
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+    steps:
+      - name: Resolve and validate tag
+        id: release
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            release_tag="${{ inputs.release_tag }}"
+          else
+            release_tag="${GITHUB_REF_NAME}"
+          fi
+
+          if ! printf '%s' "$release_tag" | grep -Eq '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[A-Za-z0-9._-]+)?$'; then
+            echo "::error::Release tag must match vYYYY.MM.DD or vYYYY.MM.DD-suffix: $release_tag"
+            exit 1
+          fi
+
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.release_tag }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+
+      - name: Validate local compose
+        run: |
+          cp .env.example .env.ci
+          docker compose --env-file .env.ci -f compose.yaml config >/dev/null
+
+      - name: Build API
+        working-directory: api
+        run: |
+          bun install
+          bun run build
+
+      - name: Build frontend
+        working-directory: fe
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Build admin
+        working-directory: admin
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+  release:
+    name: Build Images And Deploy
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - validate
+    environment: production
+    concurrency:
+      group: manle-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.release_tag }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image coordinates
+        id: images
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "owner=$owner" >> "$GITHUB_OUTPUT"
+          echo "tag=${{ needs.prepare.outputs.release_tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push API image
+        run: |
+          docker buildx build \
+            --target production \
+            --push \
+            --tag "${REGISTRY}/${IMAGE_OWNER}/manle-api:${RELEASE_TAG}" \
+            --tag "${REGISTRY}/${IMAGE_OWNER}/manle-api:${GITHUB_SHA}" \
+            ./api
+        env:
+          IMAGE_OWNER: ${{ steps.images.outputs.owner }}
+          RELEASE_TAG: ${{ steps.images.outputs.tag }}
+
+      - name: Build and push frontend image
+        run: |
+          : "${PROD_VITE_API_BASE_URL:?PROD_VITE_API_BASE_URL GitHub environment secret is required}"
+          docker buildx build \
+            --target production \
+            --build-arg "VITE_API_BASE_URL=${PROD_VITE_API_BASE_URL}" \
+            --push \
+            --tag "${REGISTRY}/${IMAGE_OWNER}/manle-fe:${RELEASE_TAG}" \
+            --tag "${REGISTRY}/${IMAGE_OWNER}/manle-fe:${GITHUB_SHA}" \
+            ./fe
+        env:
+          IMAGE_OWNER: ${{ steps.images.outputs.owner }}
+          RELEASE_TAG: ${{ steps.images.outputs.tag }}
+          PROD_VITE_API_BASE_URL: ${{ secrets.PROD_VITE_API_BASE_URL }}
+
+      - name: Build and push admin image
+        run: |
+          : "${PROD_VITE_API_BASE_URL:?PROD_VITE_API_BASE_URL GitHub environment secret is required}"
+          docker buildx build \
+            --target production \
+            --build-arg "VITE_API_BASE_URL=${PROD_VITE_API_BASE_URL}" \
+            --push \
+            --tag "${REGISTRY}/${IMAGE_OWNER}/manle-admin:${RELEASE_TAG}" \
+            --tag "${REGISTRY}/${IMAGE_OWNER}/manle-admin:${GITHUB_SHA}" \
+            ./admin
+        env:
+          IMAGE_OWNER: ${{ steps.images.outputs.owner }}
+          RELEASE_TAG: ${{ steps.images.outputs.tag }}
+          PROD_VITE_API_BASE_URL: ${{ secrets.PROD_VITE_API_BASE_URL }}
+
+      - name: Deploy over SSH
+        env:
+          IMAGE_OWNER: ${{ steps.images.outputs.owner }}
+          RELEASE_TAG: ${{ steps.images.outputs.tag }}
+          PROD_HOST: ${{ secrets.PROD_HOST }}
+          PROD_USER: ${{ secrets.PROD_USER }}
+          PROD_SSH_PORT: ${{ secrets.PROD_SSH_PORT }}
+          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+          PROD_SSH_PASSWORD: ${{ secrets.PROD_SSH_PASSWORD }}
+          PROD_SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+          PROD_DEPLOY_PATH: ${{ secrets.PROD_DEPLOY_PATH }}
+          PROD_ENV_FILE: ${{ secrets.PROD_ENV_FILE }}
+          PROD_HEALTHCHECK_URL: ${{ secrets.PROD_HEALTHCHECK_URL }}
+          PROD_CERTBOT_EMAIL: ${{ secrets.PROD_CERTBOT_EMAIL }}
+          PROD_SUDO_PASSWORD: ${{ secrets.PROD_SUDO_PASSWORD }}
+          PROD_GHCR_USERNAME: ${{ secrets.PROD_GHCR_USERNAME }}
+          PROD_GHCR_TOKEN: ${{ secrets.PROD_GHCR_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          for name in PROD_HOST PROD_USER PROD_DEPLOY_PATH PROD_ENV_FILE; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name GitHub environment secret is required"
+              exit 1
+            fi
+          done
+
+          if [ -z "${PROD_SSH_KEY:-}" ] && [ -z "${PROD_SSH_PASSWORD:-}" ]; then
+            echo "::error::Either PROD_SSH_KEY or PROD_SSH_PASSWORD GitHub environment secret is required"
+            exit 1
+          fi
+
+          port="${PROD_SSH_PORT:-22}"
+          mkdir -p "$HOME/.ssh"
+
+          if [ -n "${PROD_SSH_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$PROD_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          else
+            ssh-keyscan -p "$port" "$PROD_HOST" >> "$HOME/.ssh/known_hosts"
+          fi
+
+          remote="${PROD_USER}@${PROD_HOST}"
+
+          if [ -n "${PROD_SSH_KEY:-}" ]; then
+            key_file="${RUNNER_TEMP}/manle_prod_key"
+            printf '%s\n' "$PROD_SSH_KEY" > "$key_file"
+            chmod 600 "$key_file"
+            ssh_args=(-i "$key_file" -p "$port" -o IdentitiesOnly=yes)
+            scp_args=(-i "$key_file" -P "$port" -o IdentitiesOnly=yes)
+
+            run_ssh() {
+              ssh "${ssh_args[@]}" "$remote" "$1"
+            }
+
+            run_scp() {
+              scp "${scp_args[@]}" "$1" "$remote:$2"
+            }
+          else
+            sudo apt-get update
+            sudo apt-get install -y sshpass
+            export SSHPASS="$PROD_SSH_PASSWORD"
+            ssh_args=(-p "$port" -o PreferredAuthentications=password -o PubkeyAuthentication=no)
+            scp_args=(-P "$port" -o PreferredAuthentications=password -o PubkeyAuthentication=no)
+
+            run_ssh() {
+              sshpass -e ssh "${ssh_args[@]}" "$remote" "$1"
+            }
+
+            run_scp() {
+              sshpass -e scp "${scp_args[@]}" "$1" "$remote:$2"
+            }
+          fi
+
+          run_ssh "mkdir -p '$PROD_DEPLOY_PATH'"
+          run_scp compose.prod.yaml "$PROD_DEPLOY_PATH/compose.prod.yaml"
+          run_scp scripts/production/remote-deploy.sh "$PROD_DEPLOY_PATH/remote-deploy.sh"
+          run_scp scripts/production/ensure-certbot-nginx.sh "$PROD_DEPLOY_PATH/ensure-certbot-nginx.sh"
+          run_ssh "chmod 700 '$PROD_DEPLOY_PATH/remote-deploy.sh'"
+          run_ssh "chmod 700 '$PROD_DEPLOY_PATH/ensure-certbot-nginx.sh'"
+
+          printf '%s\n' "$PROD_ENV_FILE" | run_ssh "cat > '$PROD_DEPLOY_PATH/.env.prod' && chmod 600 '$PROD_DEPLOY_PATH/.env.prod'"
+
+          if [ -n "${PROD_CERTBOT_EMAIL:-}" ]; then
+            certbot_cmd="$(printf 'cd %q && PROD_CERTBOT_EMAIL=%q PROD_SUDO_PASSWORD_STDIN=1 sh ./ensure-certbot-nginx.sh' "$PROD_DEPLOY_PATH" "$PROD_CERTBOT_EMAIL")"
+            printf '%s\n' "${PROD_SUDO_PASSWORD:-}" | run_ssh "$certbot_cmd"
+          else
+            echo "::warning::PROD_CERTBOT_EMAIL is not set; skipping Nginx/Certbot setup"
+          fi
+
+          if [ -n "${PROD_GHCR_TOKEN:-}" ]; then
+            if [ -z "${PROD_GHCR_USERNAME:-}" ]; then
+              echo "::error::PROD_GHCR_USERNAME is required when PROD_GHCR_TOKEN is set"
+              exit 1
+            fi
+            login_cmd="$(printf 'docker login %q -u %q --password-stdin' "$REGISTRY" "$PROD_GHCR_USERNAME")"
+            printf '%s' "$PROD_GHCR_TOKEN" | run_ssh "$login_cmd"
+          fi
+
+          deploy_cmd="$(printf 'cd %q && IMAGE_REGISTRY=%q IMAGE_OWNER=%q IMAGE_TAG=%q PROD_HEALTHCHECK_URL=%q sh ./remote-deploy.sh' "$PROD_DEPLOY_PATH" "$REGISTRY" "$IMAGE_OWNER" "$RELEASE_TAG" "${PROD_HEALTHCHECK_URL:-}")"
+          run_ssh "$deploy_cmd"

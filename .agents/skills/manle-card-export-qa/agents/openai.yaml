@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manle Card Export QA"
+  short_description: "Card rendering and export QA"
+  default_prompt: "Use $manle-card-export-qa to verify card layout and export behavior."

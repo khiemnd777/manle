@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manle PDF Autofill"
+  short_description: "PDF parsing and autofill rules"
+  default_prompt: "Use $manle-pdf-autofill to change PDF upload or autofill behavior."

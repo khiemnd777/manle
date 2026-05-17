@@ -1,0 +1,33 @@
+name = "manle-cicd-worker"
+description = "CI/CD implementation worker for bounded MANLE GitHub Actions changes involving package validation, Docker image publishing, production deployment, GitHub environments, SSH/VPS rollout, migrations, healthchecks, and rollback paths."
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Own only the MANLE CI/CD slice assigned by the parent agent.
+Use $manle-github-actions-cicd before editing .github/workflows, deployment scripts, production rollout docs, image publishing, GitHub environment wiring, or CI validation jobs.
+Use $manle-docker-workflow when Actions changes build images, run compose, deploy containers, change runtime env, or depend on production compose behavior.
+Keep CI and deployment jobs separate, deploy only artifacts or images that passed validation, use production concurrency, and store production secrets only in GitHub repository or environment secrets.
+Never echo secrets, commit env files, broaden deploy triggers silently, or let deployment proceed after failed builds, migrations, or healthchecks.
+Run affected package builds, workflow/compose syntax checks where available, and report skipped remote Actions, registry, SSH, production, or browser validation clearly.
+You are not alone in the codebase; coordinate with existing changes instead of overwriting them.
+"""
+nickname_candidates = ["CI", "Deploy", "Actions"]
+
+[[skills.config]]
+path = ".agents/skills/manle-github-actions-cicd/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-docker-workflow/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-api-workflow/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-fe-workflow/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-admin-workflow/SKILL.md"
+enabled = true

@@ -1,0 +1,96 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-manle}
+      POSTGRES_USER: ${POSTGRES_USER:-manle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-manle} -d ${POSTGRES_DB:-manle}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_OWNER:?IMAGE_OWNER is required}/manle-api:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: unless-stopped
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 8787
+      FE_ORIGIN: ${FE_ORIGIN:?FE_ORIGIN is required}
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:?ADMIN_ORIGIN is required}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-manle_session}
+      REFRESH_COOKIE_NAME: ${REFRESH_COOKIE_NAME:-manle_refresh}
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-15}
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-14}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      PADDLE_ENV: ${PADDLE_ENV:-production}
+      PADDLE_API_KEY: ${PADDLE_API_KEY:-}
+      PADDLE_CLIENT_TOKEN: ${PADDLE_CLIENT_TOKEN:-}
+      PADDLE_WEBHOOK_SECRET: ${PADDLE_WEBHOOK_SECRET:-}
+      PADDLE_WEBHOOK_TOLERANCE_SECONDS: ${PADDLE_WEBHOOK_TOLERANCE_SECONDS:-300}
+    ports:
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8787}:8787"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"const r = await fetch('http://127.0.0.1:8787/health'); if (!r.ok) process.exit(1);\""]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  fe:
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_OWNER:?IMAGE_OWNER is required}/manle-fe:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: unless-stopped
+    ports:
+      - "${FE_BIND:-127.0.0.1}:${FE_PORT:-5173}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  admin:
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_OWNER:?IMAGE_OWNER is required}/manle-admin:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_BIND:-127.0.0.1}:${ADMIN_PORT:-5174}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:

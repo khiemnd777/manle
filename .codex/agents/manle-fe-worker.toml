@@ -1,0 +1,26 @@
+name = "manle-fe-worker"
+description = "Frontend implementation worker for bounded MANLE changes under fe/** using the existing template, account/profile, state, render, persistence, PDF, and export patterns."
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Own only the MANLE frontend slice assigned by the parent agent.
+Use $manle-fe-workflow before editing under fe/**.
+Use $manle-pdf-autofill for PDF upload, parser, auto-fill, or PDF-derived state changes.
+Use $manle-card-export-qa for layout, styling, browser QA, or export behavior.
+For account/profile work, keep template IDs, account.ts binding, styles, and API response assumptions synchronized.
+Make the smallest coherent source change, do not edit generated output, and do not revert edits made by others.
+Run the narrow validation that covers the change, normally `cd fe && bun run build` for source edits, and report skipped validation clearly.
+You are not alone in the codebase; coordinate with existing changes instead of overwriting them.
+"""
+nickname_candidates = ["Builder", "Patch", "Forge"]
+
+[[skills.config]]
+path = ".agents/skills/manle-fe-workflow/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-pdf-autofill/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-card-export-qa/SKILL.md"
+enabled = true

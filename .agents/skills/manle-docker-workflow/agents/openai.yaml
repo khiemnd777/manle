@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manle Docker Workflow"
+  short_description: "Docker workflow for local and production"
+  default_prompt: "Use $manle-docker-workflow to update the MANLE Docker stack safely."

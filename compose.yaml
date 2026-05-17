@@ -1,0 +1,103 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-manle}
+      POSTGRES_USER: ${POSTGRES_USER:-manle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-manle}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-manle} -d ${POSTGRES_DB:-manle}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: ./api
+      target: development
+    restart: unless-stopped
+    environment:
+      API_HOST: ${API_HOST:-0.0.0.0}
+      FE_ORIGIN: http://${PUBLIC_ORIGIN_HOST:-127.0.0.1}:${FE_PORT:-5173}
+      ADMIN_ORIGIN: http://${PUBLIC_ORIGIN_HOST:-127.0.0.1}:${ADMIN_PORT:-5174}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      DATABASE_URL: postgres://${POSTGRES_USER:-manle}:${POSTGRES_PASSWORD:-manle}@postgres:5432/${POSTGRES_DB:-manle}
+      REDIS_URL: redis://redis:6379
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-manle_session}
+      REFRESH_COOKIE_NAME: ${REFRESH_COOKIE_NAME:-manle_refresh}
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-15}
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-14}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      PADDLE_ENV: ${PADDLE_ENV:-sandbox}
+      PADDLE_API_KEY: ${PADDLE_API_KEY:-}
+      PADDLE_CLIENT_TOKEN: ${PADDLE_CLIENT_TOKEN:-}
+      PADDLE_WEBHOOK_SECRET: ${PADDLE_WEBHOOK_SECRET:-}
+      PADDLE_WEBHOOK_TOLERANCE_SECONDS: ${PADDLE_WEBHOOK_TOLERANCE_SECONDS:-300}
+    ports:
+      - "${API_PORT:-8787}:8787"
+    volumes:
+      - ./api:/app
+      - api_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  fe:
+    build:
+      context: ./fe
+      target: development
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: http://${PUBLIC_ORIGIN_HOST:-127.0.0.1}:${API_PORT:-8787}
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "${FE_PORT:-5173}:5173"
+    volumes:
+      - ./fe:/app
+      - fe_node_modules:/app/node_modules
+    depends_on:
+      - api
+
+  admin:
+    build:
+      context: ./admin
+      target: development
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: http://${PUBLIC_ORIGIN_HOST:-127.0.0.1}:${API_PORT:-8787}
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "${ADMIN_PORT:-5174}:5174"
+    volumes:
+      - ./admin:/app
+      - admin_node_modules:/app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  redis_data:
+  api_node_modules:
+  fe_node_modules:
+  admin_node_modules:

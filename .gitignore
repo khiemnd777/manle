@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Local environment
+.env
+.env.*
+!.env.example
+.github-secrets.env
+.secrets/
+
+# Frontend build and Vite cache
+dist/
+.vite/
+
+# OS files
+.DS_Store

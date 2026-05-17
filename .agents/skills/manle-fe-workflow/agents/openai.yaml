@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manle FE Workflow"
+  short_description: "Frontend workflow for cards and profile"
+  default_prompt: "Use $manle-fe-workflow to modify the Manle frontend safely."

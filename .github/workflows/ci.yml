@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+
+      - name: Validate local compose
+        run: |
+          cp .env.example .env.ci
+          docker compose --env-file .env.ci -f compose.yaml config >/dev/null
+
+      - name: Build API
+        working-directory: api
+        run: |
+          bun install
+          bun run build
+
+      - name: Build frontend
+        working-directory: fe
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Build admin
+        working-directory: admin
+        run: |
+          bun install --frozen-lockfile
+          bun run build

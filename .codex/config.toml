@@ -1,0 +1,6 @@
+[agents]
+max_threads = 4
+max_depth = 1
+
+# Repo-local skills are kept in .agents/skills per current Codex skill discovery.
+# Project-scoped custom agents are kept in .codex/agents.
