@@ -32,7 +32,11 @@ docker_compose() {
     return
   fi
 
-  run_sudo docker compose "$@"
+  run_sudo env \
+    "IMAGE_REGISTRY=$IMAGE_REGISTRY" \
+    "IMAGE_OWNER=$IMAGE_OWNER" \
+    "IMAGE_TAG=$IMAGE_TAG" \
+    docker compose "$@"
 }
 
 if [ ! -f "$COMPOSE_FILE" ]; then
