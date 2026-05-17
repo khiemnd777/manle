@@ -229,7 +229,11 @@ jobs:
             }
           fi
 
-          run_ssh "mkdir -p '$PROD_DEPLOY_PATH'"
+          if [ -n "${PROD_SUDO_PASSWORD:-}" ]; then
+            printf '%s\n' "$PROD_SUDO_PASSWORD" | run_ssh "sudo -S -p '' mkdir -p '$PROD_DEPLOY_PATH' && sudo chown '$PROD_USER:$PROD_USER' '$PROD_DEPLOY_PATH'"
+          else
+            run_ssh "mkdir -p '$PROD_DEPLOY_PATH'"
+          fi
           run_scp compose.prod.yaml "$PROD_DEPLOY_PATH/compose.prod.yaml"
           run_scp scripts/production/remote-deploy.sh "$PROD_DEPLOY_PATH/remote-deploy.sh"
           run_scp scripts/production/ensure-certbot-nginx.sh "$PROD_DEPLOY_PATH/ensure-certbot-nginx.sh"
