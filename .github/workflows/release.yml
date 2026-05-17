@@ -173,6 +173,8 @@ jobs:
           PROD_SUDO_PASSWORD: ${{ secrets.PROD_SUDO_PASSWORD }}
           PROD_GHCR_USERNAME: ${{ secrets.PROD_GHCR_USERNAME }}
           PROD_GHCR_TOKEN: ${{ secrets.PROD_GHCR_TOKEN }}
+          REMOTE_GHCR_USERNAME: ${{ github.actor }}
+          REMOTE_GHCR_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -249,13 +251,23 @@ jobs:
             echo "::warning::PROD_CERTBOT_EMAIL is not set; skipping Nginx/Certbot setup"
           fi
 
-          if [ -n "${PROD_GHCR_TOKEN:-}" ]; then
-            if [ -z "${PROD_GHCR_USERNAME:-}" ]; then
-              echo "::error::PROD_GHCR_USERNAME is required when PROD_GHCR_TOKEN is set"
+          ghcr_username="${PROD_GHCR_USERNAME:-${REMOTE_GHCR_USERNAME:-}}"
+          ghcr_token="${PROD_GHCR_TOKEN:-${REMOTE_GHCR_TOKEN:-}}"
+
+          if [ -n "$ghcr_token" ]; then
+            if [ -z "$ghcr_username" ]; then
+              echo "::error::A GHCR username is required when a GHCR token is available"
               exit 1
             fi
-            login_cmd="$(printf 'docker login %q -u %q --password-stdin' "$REGISTRY" "$PROD_GHCR_USERNAME")"
-            printf '%s' "$PROD_GHCR_TOKEN" | run_ssh "$login_cmd"
+            if [ -n "${PROD_SUDO_PASSWORD:-}" ]; then
+              login_cmd="$(printf 'sudo -S -p '\\''\\'' docker login %q -u %q --password-stdin' "$REGISTRY" "$ghcr_username")"
+              { printf '%s\n' "$PROD_SUDO_PASSWORD"; printf '%s' "$ghcr_token"; } | run_ssh "$login_cmd"
+            else
+              login_cmd="$(printf 'docker login %q -u %q --password-stdin' "$REGISTRY" "$ghcr_username")"
+              printf '%s' "$ghcr_token" | run_ssh "$login_cmd"
+            fi
+          else
+            echo "::warning::No GHCR token is available for remote docker login; pull requires public packages"
           fi
 
           if [ -n "${PROD_SUDO_PASSWORD:-}" ]; then
