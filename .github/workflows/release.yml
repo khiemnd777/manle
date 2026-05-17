@@ -230,7 +230,7 @@ jobs:
           fi
 
           if [ -n "${PROD_SUDO_PASSWORD:-}" ]; then
-            printf '%s\n' "$PROD_SUDO_PASSWORD" | run_ssh "sudo -S -p '' mkdir -p '$PROD_DEPLOY_PATH' && sudo chown '$PROD_USER:$PROD_USER' '$PROD_DEPLOY_PATH'"
+            printf '%s\n' "$PROD_SUDO_PASSWORD" | run_ssh "sudo -S -p '' sh -c 'mkdir -p \"$PROD_DEPLOY_PATH\" && chown \"$PROD_USER:$PROD_USER\" \"$PROD_DEPLOY_PATH\"'"
           else
             run_ssh "mkdir -p '$PROD_DEPLOY_PATH'"
           fi
