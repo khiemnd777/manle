@@ -258,5 +258,10 @@ jobs:
             printf '%s' "$PROD_GHCR_TOKEN" | run_ssh "$login_cmd"
           fi
 
-          deploy_cmd="$(printf 'cd %q && IMAGE_REGISTRY=%q IMAGE_OWNER=%q IMAGE_TAG=%q PROD_HEALTHCHECK_URL=%q sh ./remote-deploy.sh' "$PROD_DEPLOY_PATH" "$REGISTRY" "$IMAGE_OWNER" "$RELEASE_TAG" "${PROD_HEALTHCHECK_URL:-}")"
-          run_ssh "$deploy_cmd"
+          if [ -n "${PROD_SUDO_PASSWORD:-}" ]; then
+            deploy_cmd="$(printf 'cd %q && IMAGE_REGISTRY=%q IMAGE_OWNER=%q IMAGE_TAG=%q PROD_HEALTHCHECK_URL=%q PROD_SUDO_PASSWORD_STDIN=1 sh ./remote-deploy.sh' "$PROD_DEPLOY_PATH" "$REGISTRY" "$IMAGE_OWNER" "$RELEASE_TAG" "${PROD_HEALTHCHECK_URL:-}")"
+            printf '%s\n' "$PROD_SUDO_PASSWORD" | run_ssh "$deploy_cmd"
+          else
+            deploy_cmd="$(printf 'cd %q && IMAGE_REGISTRY=%q IMAGE_OWNER=%q IMAGE_TAG=%q PROD_HEALTHCHECK_URL=%q sh ./remote-deploy.sh' "$PROD_DEPLOY_PATH" "$REGISTRY" "$IMAGE_OWNER" "$RELEASE_TAG" "${PROD_HEALTHCHECK_URL:-}")"
+            run_ssh "$deploy_cmd"
+          fi
