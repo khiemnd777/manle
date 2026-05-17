@@ -260,7 +260,7 @@ jobs:
               exit 1
             fi
             if [ -n "${PROD_SUDO_PASSWORD:-}" ]; then
-              login_cmd="$(printf 'sudo -S -p '\\''\\'' docker login %q -u %q --password-stdin' "$REGISTRY" "$ghcr_username")"
+              login_cmd="$(printf "sudo -S -p '' docker login %q -u %q --password-stdin" "$REGISTRY" "$ghcr_username")"
               { printf '%s\n' "$PROD_SUDO_PASSWORD"; printf '%s' "$ghcr_token"; } | run_ssh "$login_cmd"
             else
               login_cmd="$(printf 'docker login %q -u %q --password-stdin' "$REGISTRY" "$ghcr_username")"
