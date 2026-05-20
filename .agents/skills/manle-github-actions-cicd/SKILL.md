@@ -19,6 +19,8 @@ Read these before editing CI/CD files:
 - `compose.yaml`, `Makefile`, and production compose/deploy files if they exist
 - `$manle-docker-workflow` for Dockerfile, compose, image, or runtime changes
 - package skills when the workflow validates package behavior: `$manle-api-workflow`, `$manle-fe-workflow`, `$manle-admin-workflow`
+- `$manle-diagnose-feedback-loop` when debugging failed CI, deploy, migration, SSH, healthcheck, or rollback behavior
+- `$manle-work-slicing` when turning a deployment plan into independently verifiable CI/CD slices
 
 Do not read or edit `node_modules`, `dist`, `.vite`, workflow logs containing secrets, or generated build output.
 

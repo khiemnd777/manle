@@ -22,6 +22,7 @@ Read these before editing:
 Do not read or search `node_modules/`, `dist/`, or `.vite/` unless the user explicitly asks about dependency internals, built output, or cache behavior.
 
 Also load `$manle-fe-workflow` for implementation changes that cross template, state, render, and persistence.
+Use `$manle-diagnose-feedback-loop` for visual/export regressions, wrong-card capture, hidden editor controls, or stale rendered output.
 
 ## Visual Surface Map
 

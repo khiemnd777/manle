@@ -17,6 +17,8 @@ Read these before editing admin files:
 - The target route, API client, schema, component, and test files
 - `$manle-api-workflow` when admin UI changes require API contract or auth behavior changes
 - `$manle-database-workflow` when admin UI changes require tier, user, subscription, or audit schema changes
+- `$manle-diagnose-feedback-loop` when debugging admin auth, table, mutation, stale data, or API-client failures
+- `$manle-tdd-vertical-slice` when adding regression coverage for admin behavior or contracts
 
 Do not read or edit `admin/node_modules`, `admin/dist`, `.vite`, or generated output.
 

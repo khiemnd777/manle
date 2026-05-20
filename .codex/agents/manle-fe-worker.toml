@@ -24,3 +24,11 @@ enabled = true
 [[skills.config]]
 path = ".agents/skills/manle-card-export-qa/SKILL.md"
 enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-diagnose-feedback-loop/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-tdd-vertical-slice/SKILL.md"
+enabled = true

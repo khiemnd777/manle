@@ -22,6 +22,8 @@ Read these before editing:
 Do not read or search `node_modules/`, `dist/`, or `.vite/` unless the user explicitly asks about dependency internals, built output, or cache behavior.
 
 Also load `$manle-fe-workflow` when the change crosses form fields, render output, state, or tab behavior.
+Use `$manle-diagnose-feedback-loop` for parser bugs, product misclassification, stale PDF-derived state, or upload regressions.
+Use `$manle-tdd-vertical-slice` when adding representative parser or auto-fill regression coverage.
 
 ## Parser Pipeline
 

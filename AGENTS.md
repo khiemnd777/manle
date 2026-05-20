@@ -17,6 +17,9 @@ The app is not a conventional React component tree. React mounts `fe/src/templat
 - `fe/dist/`, `admin/dist/`, `api/dist/`, any `node_modules/`, and `.vite/` are generated or cache output. Do not edit them.
 - `.agents/skills/` contains repo-local Codex skills.
 - `.codex/agents/` contains project-scoped Codex subagent definitions.
+- `CONTEXT.md` contains stable MANLE vocabulary, invariants, and agent-facing context.
+- `docs/agents/` contains agent workflow references such as domain terms, triage labels, issue-slice format, and handoff format.
+- `docs/adr/` contains durable architecture decisions.
 
 ## Agent Ignore Rules
 
@@ -40,6 +43,7 @@ Run commands from the package being changed:
 ## Working Rules
 
 - When a task asks to find, debug, map, or modify a feature under `fe/`, `api/`, or `admin/`, read the package's `AGENT_DIRECTORY.md` first and use its search anchors before broad `rg`.
+- Read `CONTEXT.md` when a task needs MANLE product vocabulary, cross-package contracts, or architecture decisions.
 - Read `fe/AGENTS.md` before changing files under `fe/`.
 - Keep edits scoped to source files that own the requested behavior.
 - Preserve the existing DOM-driven architecture unless the user explicitly asks for a larger refactor.
@@ -50,6 +54,7 @@ Run commands from the package being changed:
 - Keep product-specific policy fields separate where the current app separates them.
 - Do not invent insurance illustration values. Preserve conservative parser and projection assumptions.
 - Preserve bilingual English/Vietnamese UI text unless the task explicitly changes copy.
+- Run `node scripts/validate-manle-skills.mjs` after changing `.agents/skills/**`, `.codex/agents/**`, `CONTEXT.md`, `docs/agents/**`, or `docs/adr/**`.
 
 ## Validation Expectations
 

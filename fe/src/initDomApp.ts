@@ -1,4 +1,3 @@
-import './styles.css';
 import './runtime';
 import { $ } from './core';
 import { bindAccountAndBilling } from './account';

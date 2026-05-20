@@ -17,3 +17,7 @@ enabled = true
 [[skills.config]]
 path = ".agents/skills/manle-github-actions-cicd/SKILL.md"
 enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-architecture-review/SKILL.md"
+enabled = true

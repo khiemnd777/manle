@@ -182,7 +182,7 @@ function setInputValue(id: string, value: string, force = false) {
 function syncPricingProfileStep(hasActor: boolean) {
   const pricing = byId('pricing');
   if (!pricing) return;
-  pricing.dataset.nextTarget = hasActor ? '#profile' : '#card-generator';
+  pricing.dataset.nextTarget = hasActor ? '#profile' : '/generator';
   pricing.dataset.nextLabel = hasActor ? 'Customer Profile' : 'Card Generator';
 }
 
@@ -576,8 +576,7 @@ function loadPaddleScript() {
 }
 
 function checkoutSuccessUrl() {
-  const url = new URL(window.location.href);
-  url.hash = '#card-generator';
+  const url = new URL('/generator', window.location.origin);
   return url.toString();
 }
 
@@ -614,7 +613,7 @@ async function openPaddleCheckout(config: CheckoutConfig) {
 async function startCheckout(tierCode: string) {
   if (tierCode === 'free') {
     if (!accountState.actor) openAuth('signup');
-    window.location.hash = '#card-generator';
+    window.location.href = '/generator';
     return;
   }
   if (!accountState.actor) {

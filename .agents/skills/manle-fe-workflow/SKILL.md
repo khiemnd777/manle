@@ -24,6 +24,8 @@ Load narrower skills when applicable:
 
 - Use `$manle-pdf-autofill` for `fe/src/pdf.ts`, `fe/src/runtime.ts`, upload zones, PDF parsing, or auto-fill behavior.
 - Use `$manle-card-export-qa` for `fe/src/styles.css`, `fe/src/exportCard.ts`, card layout, image/PDF export, or browser visual QA.
+- Use `$manle-diagnose-feedback-loop` for frontend bugs, regressions, stale state, or inconsistent UI behavior.
+- Use `$manle-tdd-vertical-slice` when adding regression coverage for frontend behavior.
 
 ## Architecture To Preserve
 

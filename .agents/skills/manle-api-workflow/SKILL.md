@@ -16,6 +16,8 @@ Read these before editing backend files:
 - `api/package.json` if it exists
 - The target route, service, repository, schema, and tests for the behavior being changed
 - `$manle-database-workflow` when a change touches Postgres tables, migrations, SQL, or persistence
+- `$manle-diagnose-feedback-loop` when debugging API, auth, billing, entitlement, quota, or route failures
+- `$manle-tdd-vertical-slice` when adding regression coverage around API behavior or contracts
 
 Do not read or search `node_modules`, `dist`, `.vite`, coverage output, or generated files.
 

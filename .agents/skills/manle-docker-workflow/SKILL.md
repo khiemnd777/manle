@@ -20,6 +20,7 @@ Read these before editing Docker-related files:
 - the target package Dockerfile: `api/Dockerfile`, `fe/Dockerfile`, or `admin/Dockerfile`
 - the target package `package.json`
 - the package skill when changing package behavior: `$manle-api-workflow`, `$manle-fe-workflow`, or `$manle-admin-workflow`
+- `$manle-diagnose-feedback-loop` when debugging container startup, healthcheck, env, or local/prod runtime drift
 
 Do not read or edit `node_modules`, `dist`, `.vite`, image layers, container volumes, or generated build output.
 

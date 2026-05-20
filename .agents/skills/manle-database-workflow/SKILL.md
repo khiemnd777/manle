@@ -15,6 +15,8 @@ Read these before editing database files:
 - `api/AGENTS.md` or `db/AGENTS.md` if present
 - Existing migrations, schema files, database client setup, and repository code
 - `$manle-api-workflow` when SQL affects API behavior, auth, billing, or admin endpoints
+- `$manle-diagnose-feedback-loop` when debugging repository, migration, quota, billing, or schema behavior
+- `$manle-tdd-vertical-slice` when adding regression coverage for repository or migration behavior
 
 Do not inspect generated database dumps, dependency folders, or build output unless the user explicitly asks.
 

@@ -31,3 +31,11 @@ enabled = true
 [[skills.config]]
 path = ".agents/skills/manle-admin-workflow/SKILL.md"
 enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-diagnose-feedback-loop/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-work-slicing/SKILL.md"
+enabled = true
