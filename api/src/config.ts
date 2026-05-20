@@ -54,6 +54,15 @@ export const config = {
   paddleClientToken: Bun.env.PADDLE_CLIENT_TOKEN || '',
   paddleEnv: (Bun.env.PADDLE_ENV || 'sandbox') as 'sandbox' | 'production',
   paddleWebhookToleranceSeconds: Number(Bun.env.PADDLE_WEBHOOK_TOLERANCE_SECONDS || 300),
+  googleOAuthClientId: Bun.env.GOOGLE_OAUTH_CLIENT_ID || '',
+  googleOAuthClientSecret: Bun.env.GOOGLE_OAUTH_CLIENT_SECRET || '',
+  googleOAuthRedirectUri: Bun.env.GOOGLE_OAUTH_REDIRECT_URI || '',
+  appleOAuthClientId: Bun.env.APPLE_OAUTH_CLIENT_ID || '',
+  appleOAuthTeamId: Bun.env.APPLE_OAUTH_TEAM_ID || '',
+  appleOAuthKeyId: Bun.env.APPLE_OAUTH_KEY_ID || '',
+  appleOAuthPrivateKey: Bun.env.APPLE_OAUTH_PRIVATE_KEY || '',
+  appleOAuthClientSecret: Bun.env.APPLE_OAUTH_CLIENT_SECRET || '',
+  appleOAuthRedirectUri: Bun.env.APPLE_OAUTH_REDIRECT_URI || '',
 };
 
 export const paddleApiBase = config.paddleEnv === 'production'

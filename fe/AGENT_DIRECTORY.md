@@ -189,6 +189,8 @@ Frontend uses `VITE_API_BASE_URL` or `http://127.0.0.1:8787`.
 - `PATCH /api/profile`
 - `POST /api/auth/signup`
 - `POST /api/auth/login`
+- `GET /api/auth/oauth/google/start`
+- `GET /api/auth/oauth/apple/start`
 - `POST /api/auth/refresh`
 - `POST /api/auth/logout`
 - `POST /api/exports/authorize`

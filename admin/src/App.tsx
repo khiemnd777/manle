@@ -1,9 +1,14 @@
+import { EditorContent, useEditor } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   Actor,
   ApiError,
   AuditLog,
   Customer,
+  EmailSettings,
+  EmailTemplate,
+  EmailVariable,
   EntitlementDefinition,
   EntitlementGrant,
   PriceTier,
@@ -13,7 +18,7 @@ import {
   api,
 } from './api/client';
 
-type View = 'users' | 'customers' | 'subscriptions' | 'promotions' | 'tiers' | 'entitlements' | 'audit' | 'profile';
+type View = 'users' | 'customers' | 'subscriptions' | 'promotions' | 'tiers' | 'entitlements' | 'emails' | 'audit' | 'profile';
 
 type AdminData = {
   overview: { systemUsers: number; customers: number; activeSubscriptions: number; activePromotions: number; activeTiers: number };
@@ -24,6 +29,8 @@ type AdminData = {
   tiers: PriceTier[];
   entitlementDefinitions: EntitlementDefinition[];
   entitlementGrants: EntitlementGrant[];
+  emailSettings: EmailSettings | null;
+  emailTemplates: EmailTemplate[];
   auditLogs: AuditLog[];
 };
 
@@ -41,6 +48,8 @@ const emptyData: AdminData = {
   tiers: [],
   entitlementDefinitions: [],
   entitlementGrants: [],
+  emailSettings: null,
+  emailTemplates: [],
   auditLogs: [],
 };
 
@@ -62,6 +71,48 @@ function numberField(form: HTMLFormElement, name: string) {
 
 function boolField(form: HTMLFormElement, name: string) {
   return new FormData(form).get(name) === 'on';
+}
+
+function cleanVariableText(value: string) {
+  return value.trim().replace(/^\{\{\s*/, '').replace(/\s*\}\}$/, '');
+}
+
+function variableToken(value: string) {
+  const text = cleanVariableText(value);
+  return text ? `{{${text}}}` : '';
+}
+
+function normalizeEmailVariables(value: unknown): EmailVariable[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const variables: EmailVariable[] = [];
+  for (const item of value) {
+    const text = typeof item === 'string'
+      ? cleanVariableText(item)
+      : cleanVariableText(String((item as EmailVariable)?.text || (item as EmailVariable)?.label || ''));
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    variables.push({ text, label: variableToken(text) });
+  }
+  return variables;
+}
+
+function testVariableValues(form: HTMLFormElement, variables: EmailVariable[]) {
+  return Object.fromEntries(variables.map(variable => [variable.text, field(form, `var:${variable.text}`)]));
+}
+
+function htmlToText(html: string) {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
 }
 
 function cents(value: number) {
@@ -222,6 +273,101 @@ function Switcher({
   );
 }
 
+function RichTextEditor({
+  name,
+  initialHtml,
+  variables,
+}: {
+  name: string;
+  initialHtml?: string;
+  variables: EmailVariable[];
+}) {
+  const [html, setHtml] = useState(initialHtml || '<p></p>');
+  const editor = useEditor({
+    extensions: [StarterKit],
+    content: initialHtml || '<p></p>',
+    immediatelyRender: false,
+    onUpdate: ({ editor: currentEditor }) => setHtml(currentEditor.getHTML()),
+  });
+
+  useEffect(() => {
+    if (!editor) return;
+    const nextHtml = initialHtml || '<p></p>';
+    editor.commands.setContent(nextHtml);
+    setHtml(nextHtml);
+  }, [editor, initialHtml]);
+
+  return (
+    <div className="rich-editor">
+      <input type="hidden" name={name} value={html} readOnly />
+      <input type="hidden" name="textBody" value={htmlToText(html)} readOnly />
+      <div className="rich-toolbar" aria-label="Editor toolbar">
+        <button type="button" className={editor?.isActive('bold') ? 'active' : ''} onClick={() => editor?.chain().focus().toggleBold().run()}>B</button>
+        <button type="button" className={editor?.isActive('italic') ? 'active' : ''} onClick={() => editor?.chain().focus().toggleItalic().run()}>I</button>
+        <button type="button" onClick={() => editor?.chain().focus().toggleBulletList().run()}>Bullets</button>
+        <button type="button" onClick={() => editor?.chain().focus().toggleOrderedList().run()}>Numbers</button>
+        <button type="button" onClick={() => editor?.chain().focus().undo().run()}>Undo</button>
+        <button type="button" onClick={() => editor?.chain().focus().redo().run()}>Redo</button>
+      </div>
+      {variables.length > 0 && (
+        <div className="variable-pills" aria-label="Insert variable">
+          {variables.map(variable => (
+            <button
+              type="button"
+              className="ghost-button"
+              key={variable.text}
+              onClick={() => editor?.chain().focus().insertContent(`{{${variable.text}}}`).run()}
+            >
+              {variable.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <EditorContent editor={editor} />
+    </div>
+  );
+}
+
+function EmailTemplateFields({ template }: { template?: EmailTemplate }) {
+  const variables = normalizeEmailVariables(template?.variables || []);
+
+  return (
+    <>
+      <VariablesList variables={variables} />
+      <div className="field-label">Email body</div>
+      <RichTextEditor name="htmlBody" initialHtml={template?.htmlBody || '<p></p>'} variables={variables} />
+    </>
+  );
+}
+
+function VariablesList({ variables }: { variables: EmailVariable[] }) {
+  const normalized = normalizeEmailVariables(variables);
+  return (
+    <div className="variable-list">
+      <strong>Variables</strong>
+      {normalized.length ? (
+        <div className="variable-pills static">
+          {normalized.map(variable => <span key={variable.text}>{variable.label}</span>)}
+        </div>
+      ) : (
+        <span className="muted">—</span>
+      )}
+    </div>
+  );
+}
+
+function TestVariablesEditor({ variables }: { variables: EmailVariable[] }) {
+  const normalized = normalizeEmailVariables(variables);
+  if (!normalized.length) return <div className="empty">This template does not declare variables.</div>;
+  return (
+    <div className="test-variable-grid">
+      {normalized.map(variable => (
+        <label key={variable.text}>{variable.label}<input name={`var:${variable.text}`} placeholder={`{{${variable.text}}}`} /></label>
+      ))}
+    </div>
+  );
+}
+
 export function App() {
   const [loading, setLoading] = useState(true);
   const [hasAdmin, setHasAdmin] = useState<boolean | null>(null);
@@ -360,12 +506,14 @@ function AdminShell({
   const [data, setData] = useState<AdminData>(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const viewTitle = view === 'profile' ? 'Profile' : view === 'users' ? 'System Users' : view;
+  const viewTitle = view === 'profile' ? 'Profile' : view === 'users' ? 'System Users' : view === 'emails' ? 'Email Templates' : view;
   const viewDescription = !isAdmin || view === 'profile'
     ? 'Manage your account identity and password.'
     : view === 'users'
       ? 'Manage internal MANLE admin and normal user accounts.'
-    : 'Manage MANLE customers, billing state, price tiers, promotions, and feature access.';
+      : view === 'emails'
+        ? 'Manage Resend delivery settings, reusable templates, and test sends.'
+        : 'Manage MANLE customers, billing state, price tiers, promotions, and feature access.';
 
   async function loadAll(customerSearch = '', systemUserSearch = '') {
     setLoading(true);
@@ -376,7 +524,7 @@ function AdminShell({
       return;
     }
     try {
-      const [overview, systemUsers, customers, subscriptions, promotions, tiers, entitlements, audit] = await Promise.all([
+      const [overview, systemUsers, customers, subscriptions, promotions, tiers, entitlements, emailSettings, emailTemplates, audit] = await Promise.all([
         api.overview(),
         api.systemUsers(systemUserSearch),
         api.customers(customerSearch),
@@ -384,6 +532,8 @@ function AdminShell({
         api.promotions(),
         api.priceTiers(),
         api.entitlements(),
+        api.emailSettings(),
+        api.emailTemplates(),
         api.audit(),
       ]);
       setData({
@@ -395,6 +545,8 @@ function AdminShell({
         tiers: tiers.tiers,
         entitlementDefinitions: entitlements.definitions,
         entitlementGrants: entitlements.grants,
+        emailSettings: emailSettings.settings,
+        emailTemplates: emailTemplates.templates,
         auditLogs: audit.logs,
       });
     } catch (err) {
@@ -421,7 +573,7 @@ function AdminShell({
     <div className="admin-layout">
       <aside className="sidebar">
         <div className="side-brand"><span className="brand-mark">M</span><strong>MANLE Admin</strong></div>
-        {isAdmin && (['users', 'customers', 'subscriptions', 'promotions', 'tiers', 'entitlements', 'audit'] as View[]).map(item => (
+        {isAdmin && (['users', 'customers', 'subscriptions', 'promotions', 'tiers', 'entitlements', 'emails', 'audit'] as View[]).map(item => (
           <button key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>
             {item === 'users' ? 'users' : item}
           </button>
@@ -464,6 +616,7 @@ function AdminShell({
             {view === 'promotions' && <PromotionsView data={data} reload={loadAll} />}
             {view === 'tiers' && <TiersView data={data} reload={loadAll} />}
             {view === 'entitlements' && <EntitlementsView data={data} reload={loadAll} />}
+            {view === 'emails' && <EmailsView data={data} reload={loadAll} />}
             {view === 'audit' && <AuditView logs={data.auditLogs} />}
             {view === 'profile' && <ProfileView actor={actor} onActorChange={onActorChange} />}
           </>
@@ -1331,6 +1484,216 @@ function EntitlementsView({ data, reload }: { data: AdminData; reload: () => Pro
           ))}
         </tbody>
       </table>
+    </section>
+  );
+}
+
+function EmailsView({ data, reload }: { data: AdminData; reload: () => Promise<void> }) {
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editing, setEditing] = useState<EmailTemplate | null>(null);
+  const [testing, setTesting] = useState<EmailTemplate | null>(null);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const settings = data.emailSettings;
+
+  async function saveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    const form = event.currentTarget;
+    const resendApiKey = field(form, 'resendApiKey');
+    const body: Parameters<typeof api.updateEmailSettings>[0] = {
+      enabled: boolField(form, 'enabled'),
+      fromName: field(form, 'fromName'),
+      fromEmail: field(form, 'fromEmail'),
+      replyToEmail: field(form, 'replyToEmail') || null,
+    };
+    if (resendApiKey) body.resendApiKey = resendApiKey;
+    if (boolField(form, 'clearResendApiKey')) body.resendApiKey = '';
+
+    try {
+      await api.updateEmailSettings(body);
+      setMessage('Email settings saved.');
+      form.reset();
+      await reload();
+    } catch (err) {
+      setError(messageFromError(err));
+    }
+  }
+
+  function templatePayload(form: HTMLFormElement, key?: string): Partial<EmailTemplate> {
+    return {
+      key: key || field(form, 'key'),
+      name: field(form, 'name'),
+      description: field(form, 'description'),
+      subject: field(form, 'subject'),
+      htmlBody: field(form, 'htmlBody'),
+      textBody: field(form, 'textBody') || htmlToText(field(form, 'htmlBody')),
+      enabled: boolField(form, 'enabled'),
+    };
+  }
+
+  async function createTemplate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    try {
+      await api.createEmailTemplate(templatePayload(event.currentTarget));
+      setCreateOpen(false);
+      setMessage('Email template created.');
+      await reload();
+    } catch (err) {
+      setError(messageFromError(err));
+    }
+  }
+
+  async function openEdit(template: EmailTemplate) {
+    setError('');
+    setMessage('');
+    try {
+      const result = await api.emailTemplate(template.key);
+      setEditing(result.template);
+    } catch (err) {
+      setError(messageFromError(err));
+    }
+  }
+
+  async function saveTemplate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editing) return;
+    setError('');
+    setMessage('');
+    try {
+      await api.updateEmailTemplate(editing.key, templatePayload(event.currentTarget, editing.key));
+      setEditing(null);
+      setMessage('Email template saved.');
+      await reload();
+    } catch (err) {
+      setError(messageFromError(err));
+    }
+  }
+
+  async function sendTest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!testing) return;
+    setError('');
+    setMessage('');
+    try {
+      const result = await api.sendTestEmail({
+        templateKey: testing.key,
+        to: field(event.currentTarget, 'to'),
+        variables: testVariableValues(event.currentTarget, testing.variables),
+      });
+      setTesting(null);
+      setMessage(result.id ? `Test email sent: ${result.id}` : 'Test email sent.');
+    } catch (err) {
+      setError(messageFromError(err));
+    }
+  }
+
+  return (
+    <section className="email-grid">
+      <div className="panel">
+        <div className="panel-head">
+          <h2>Resend Settings</h2>
+          <StatusBadge value={settings?.enabled || false} />
+        </div>
+        {settings ? (
+          <form key={`${settings.updatedAt}:${settings.resendApiKeyPreview || 'none'}`} className="stack-form" onSubmit={saveSettings}>
+            <label className="check"><input name="enabled" type="checkbox" defaultChecked={settings.enabled} /> Enable email sending</label>
+            <label>From name<input name="fromName" defaultValue={settings.fromName || 'MANLE'} /></label>
+            <label>From email<input name="fromEmail" type="email" defaultValue={settings.fromEmail || ''} placeholder="hello@manle.info" /></label>
+            <label>Reply-to email<input name="replyToEmail" type="email" defaultValue={settings.replyToEmail || ''} placeholder="Optional" /></label>
+            <label>Resend API key<input name="resendApiKey" type="password" placeholder={settings.hasResendApiKey ? `Keep current key (${settings.resendApiKeyPreview})` : 're_...'} autoComplete="off" /></label>
+            <label className="check"><input name="clearResendApiKey" type="checkbox" /> Clear stored API key</label>
+            <div className="form-actions">
+              <button type="submit">Save settings</button>
+            </div>
+          </form>
+        ) : (
+          <div className="empty">Email settings are not loaded.</div>
+        )}
+      </div>
+      <div className="panel email-template-panel">
+        <div className="panel-head">
+          <h2>Email Templates</h2>
+          <button type="button" onClick={() => setCreateOpen(true)}>Create template</button>
+        </div>
+        {message && <div className="success-box compact">{message}</div>}
+        {error && <div className="error-box compact">{error}</div>}
+        <table>
+          <thead><tr><th>Template</th><th>Subject</th><th>Variables</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {data.emailTemplates.map(template => (
+              <tr key={template.key}>
+                <td><strong>{template.name}</strong><br /><span className="muted">{template.key}{template.system ? ' / system' : ''}</span></td>
+                <td>{template.subject}<br /><span className="muted">{template.description}</span></td>
+              <td>{template.variables?.length ? template.variables.map(variable => variable.label || variableToken(variable.text)).join(', ') : '—'}</td>
+                <td><StatusBadge value={template.enabled} /></td>
+                <td className="button-cell">
+                  <button type="button" onClick={() => openEdit(template)}>Edit</button>
+                  <button type="button" className="ghost-button" onClick={() => setTesting(template)}>Test</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {createOpen && (
+        <Dialog title="Create email template" onClose={() => setCreateOpen(false)}>
+          <form className="dialog-form" onSubmit={createTemplate}>
+            <label>Key<input name="key" placeholder="custom_notice" required /></label>
+            <label>Name<input name="name" placeholder="Template name" required /></label>
+            <label>Description<input name="description" placeholder="Internal description" /></label>
+            <label>Subject<input name="subject" placeholder="Email subject" required /></label>
+            <EmailTemplateFields />
+            <label className="check"><input name="enabled" type="checkbox" defaultChecked /> Enabled</label>
+            <div className="dialog-actions">
+              <button className="ghost-button" type="button" onClick={() => setCreateOpen(false)}>Cancel</button>
+              <button type="submit">Create template</button>
+            </div>
+          </form>
+        </Dialog>
+      )}
+
+      {editing && (
+        <Dialog title="Edit email template" onClose={() => setEditing(null)}>
+          <form className="dialog-form" onSubmit={saveTemplate}>
+            <div className="dialog-context">
+              <strong>{editing.name}</strong>
+              <span>{editing.key}{editing.system ? ' / system template' : ''}</span>
+              <span>Updated {dateOnly(editing.updatedAt)}</span>
+            </div>
+            <label>Name<input name="name" defaultValue={editing.name} required /></label>
+            <label>Description<input name="description" defaultValue={editing.description} /></label>
+            <label>Subject<input name="subject" defaultValue={editing.subject} required /></label>
+            <EmailTemplateFields template={editing} />
+            <label className="check"><input name="enabled" type="checkbox" defaultChecked={editing.enabled} /> Enabled</label>
+            <div className="dialog-actions">
+              <button className="ghost-button" type="button" onClick={() => setEditing(null)}>Cancel</button>
+              <button type="submit">Save template</button>
+            </div>
+          </form>
+        </Dialog>
+      )}
+
+      {testing && (
+        <Dialog title="Send test email" onClose={() => setTesting(null)}>
+          <form className="dialog-form" onSubmit={sendTest}>
+            <div className="dialog-context">
+              <strong>{testing.name}</strong>
+              <span>{testing.subject}</span>
+            </div>
+            <label>Recipient<input name="to" type="email" placeholder="recipient@example.com" required /></label>
+            <TestVariablesEditor variables={testing.variables} />
+            <div className="dialog-actions">
+              <button className="ghost-button" type="button" onClick={() => setTesting(null)}>Cancel</button>
+              <button type="submit">Send test</button>
+            </div>
+          </form>
+        </Dialog>
+      )}
     </section>
   );
 }

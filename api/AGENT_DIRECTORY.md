@@ -14,7 +14,7 @@ and response shape are all visible in that file.
 | --- | --- | --- | --- |
 | route, endpoint, API not found, CORS | `src/index.ts`, `src/http/response.ts` | `src/config.ts` | `route`, `url.pathname`, `corsHeaders`, `allowedCorsOrigins`, `OPTIONS` |
 | env, port, cookie, Paddle config, Redis, database URL | `src/config.ts` | `src/db/client.ts` | `DATABASE_URL`, `API_HOST`, `API_PORT`, `FE_ORIGIN`, `ADMIN_ORIGIN`, `PADDLE_`, `REDIS_URL` |
-| customer auth, signup, login, logout, refresh token | `src/services/auth.ts` | `src/index.ts`, `db/migrations/002_refresh_tokens.sql` | `signupCustomer`, `loginCustomer`, `refreshCustomerSession`, `logoutSession`, `sessions`, `refresh_tokens` |
+| customer auth, signup, login, logout, refresh token, social login | `src/services/auth.ts` | `src/index.ts`, `db/migrations/002_refresh_tokens.sql`, `db/migrations/008_oauth_accounts.sql` | `signupCustomer`, `loginCustomer`, `startCustomerOAuth`, `completeCustomerOAuth`, `refreshCustomerSession`, `logoutSession`, `sessions`, `refresh_tokens`, `oauth_accounts` |
 | admin auth, bootstrap, first admin, normal system user login | `src/services/auth.ts`, `src/index.ts` | `../admin/src/api/client.ts` | `getAdminBootstrapStatus`, `createInitialAdmin`, `loginAdmin`, `requireSystemUser`, `/api/admin/bootstrap`, `/api/admin/auth/login` |
 | profile self-service, name/email/password | `src/services/auth.ts` | `../fe/src/account.ts` | `updateProfile`, `currentPassword`, `newPassword`, `email_exists`, `/api/profile` |
 | current account state, `/api/me`, quota display | `src/services/entitlements.ts` | `src/services/admin.ts`, `../fe/src/account.ts` | `accountEntitlements`, `effectiveEntitlementsForUser`, `quota`, `requiresLogin` |
@@ -46,6 +46,10 @@ Customer account and billing:
 | `PATCH /api/profile` | `requireUser` | `updateProfile`, then `accountEntitlements` | Name/email/password self-service; email/password require current password. |
 | `POST /api/auth/signup` | none | `assertRateLimit`, `signupCustomer` | Creates customer, returns account state plus auth cookies. |
 | `POST /api/auth/login` | none | `assertRateLimit`, `loginCustomer` | Customer login only; returns account state plus cookies. |
+| `GET /api/auth/oauth/google/start` | none | `startCustomerOAuth` | Redirects to Google OAuth with state cookie. |
+| `GET /api/auth/oauth/google/callback` | OAuth state cookie | `completeCustomerOAuth` | Exchanges code, links/creates customer, sets auth cookies, redirects to FE. |
+| `GET /api/auth/oauth/apple/start` | none | `startCustomerOAuth` | Redirects to Apple OAuth with state cookie. |
+| `POST /api/auth/oauth/apple/callback` | OAuth state cookie | `completeCustomerOAuth` | Exchanges code, links/creates customer, sets auth cookies, redirects to FE. |
 | `POST /api/auth/refresh` | refresh cookie | `refreshCustomerSession` | Rotates refresh token and returns fresh cookies/account state. |
 | `POST /api/auth/logout` | optional cookie | `logoutSession` | Revokes access/refresh tokens and clears cookies. |
 | `POST /api/exports/authorize` | `requireUser` | `authorizeExport` | Increments quota if under limit; returns watermark/branding/style flags. |
@@ -103,6 +107,7 @@ before reaching these data-management branches.
 - Login lookup: `findLoginUser`.
 - Admin bootstrap: `getAdminBootstrapStatus`, `createInitialAdmin`.
 - Customer auth: `signupCustomer`, `loginCustomer`, `refreshCustomerSession`.
+- Social customer auth: `startCustomerOAuth`, `completeCustomerOAuth`, `oauth_accounts`.
 - Admin auth: `loginAdmin`, `refreshAdminSession`.
 - System user auth: `requireSystemUser` allows `admin` and `user` actors to load `/api/admin/me`.
 - Profile self-service: `updateProfile`.
@@ -167,6 +172,7 @@ Tables:
 - `users`: email/name/password hash/role/status/current tier/Paddle customer ID/notes. Roles are `customer`, `admin`, and internal normal `user`.
 - `sessions`: access token hashes and expiry.
 - `refresh_tokens`: refresh token hashes, family rotation, revoked/replaced tracking.
+- `oauth_accounts`: Google/Apple provider subject links for customer social login.
 - `subscriptions`: local and Paddle subscription state, tier, billing period, manual override, metadata.
 - `promotions`: promo code, tier scope, discount type/value, redemption count, Paddle discount ID.
 - `entitlements`: entitlement definitions and defaults.
@@ -210,6 +216,8 @@ Seed entitlement keys:
 - `PADDLE_CLIENT_TOKEN`
 - `PADDLE_ENV` default `sandbox`
 - `PADDLE_WEBHOOK_TOLERANCE_SECONDS` default `300`
+- `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`
+- `APPLE_OAUTH_CLIENT_ID`, `APPLE_OAUTH_TEAM_ID`, `APPLE_OAUTH_KEY_ID`, `APPLE_OAUTH_PRIVATE_KEY`, `APPLE_OAUTH_CLIENT_SECRET`, `APPLE_OAUTH_REDIRECT_URI`
 
 ## Cross-Package Contracts
 

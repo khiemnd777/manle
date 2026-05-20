@@ -11,7 +11,7 @@ COPY . .
 
 EXPOSE 5174
 
-CMD ["sh", "-c", "bun run dev -- --host 0.0.0.0 --port ${ADMIN_PORT:-5174}"]
+CMD ["sh", "-c", "bun install --frozen-lockfile && bun run dev -- --host 0.0.0.0 --port ${ADMIN_PORT:-5174}"]
 
 FROM base AS build
 

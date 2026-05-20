@@ -3,20 +3,27 @@ import { AppError } from './http/errors';
 import { corsHeaders, json, readJson } from './http/response';
 import {
   authCookieHeaders,
+  clearOAuthStateCookie,
   clearAuthCookieHeaders,
+  completeCustomerOAuth,
   createInitialAdmin,
   currentUser,
   getAdminBootstrapStatus,
   loginAdmin,
   loginCustomer,
   logoutSession,
+  oauthFailureRedirectUrl,
+  requestPasswordReset,
   refreshAdminSession,
   refreshCustomerSession,
   requireAdmin,
   requireSystemUser,
   requireUser,
+  resetPassword,
   signupCustomer,
+  startCustomerOAuth,
   updateProfile,
+  type OAuthProvider,
 } from './services/auth';
 import {
   auditLogs,
@@ -42,6 +49,15 @@ import {
   upsertPriceTier,
 } from './services/admin';
 import { accountEntitlements, authorizeExport, authorizeFeature } from './services/entitlements';
+import {
+  getEmailSettings,
+  getEmailTemplate,
+  listEmailTemplates,
+  sendTemplateEmailQuietly,
+  sendTestEmail,
+  updateEmailSettings,
+  upsertEmailTemplate,
+} from './services/email';
 import { getPaddleCheckoutConfig, createCustomerPortalSession, handlePaddleWebhook, syncPaddleSubscription } from './services/paddle';
 import { rateLimit } from './services/redis';
 
@@ -63,6 +79,99 @@ function clientIp(request: Request) {
     || 'local';
 }
 
+function isOAuthProvider(value?: string): value is OAuthProvider {
+  return value === 'google' || value === 'apple';
+}
+
+function appendHeaders(target: Headers, values: Record<string, string | string[]>) {
+  for (const [key, value] of Object.entries(values)) {
+    if (Array.isArray(value)) {
+      value.forEach(item => target.append(key, item));
+    } else {
+      target.set(key, value);
+    }
+  }
+}
+
+function redirectResponse(location: string, status = 303, headers: Record<string, string | string[]> = {}) {
+  const responseHeaders = new Headers({
+    Location: location,
+    'Cache-Control': 'no-store',
+  });
+  appendHeaders(responseHeaders, headers);
+  return new Response(null, { status, headers: responseHeaders });
+}
+
+function oauthErrorCode(error: unknown) {
+  return error instanceof AppError ? error.code : 'oauth_failed';
+}
+
+function oauthStartFailureRedirectUrl(provider: OAuthProvider, url: URL, code: string) {
+  let target = new URL('/generator', config.feOrigin);
+  try {
+    const requested = new URL(url.searchParams.get('next') || '/generator', config.feOrigin);
+    if (requested.origin === config.feOrigin) target = requested;
+  } catch {
+    target = new URL('/generator', config.feOrigin);
+  }
+  target.searchParams.set('auth_error', code);
+  target.searchParams.set('auth_provider', provider);
+  return target.toString();
+}
+
+async function readOAuthCallbackInput(request: Request, url: URL) {
+  if (request.method === 'POST') {
+    const form = await request.formData();
+    return {
+      code: String(form.get('code') || ''),
+      state: String(form.get('state') || ''),
+      error: String(form.get('error') || ''),
+      user: String(form.get('user') || ''),
+    };
+  }
+  return {
+    code: url.searchParams.get('code') || '',
+    state: url.searchParams.get('state') || '',
+    error: url.searchParams.get('error') || '',
+  };
+}
+
+async function handleOAuthStart(provider: OAuthProvider, request: Request, url: URL) {
+  try {
+    const result = startCustomerOAuth(provider, request, {
+      next: url.searchParams.get('next'),
+      checkoutTier: url.searchParams.get('checkoutTier'),
+    });
+    return redirectResponse(result.redirectUrl, 302, { 'Set-Cookie': result.stateCookie });
+  } catch (error) {
+    if (!(error instanceof AppError)) console.error(error);
+    return redirectResponse(oauthStartFailureRedirectUrl(provider, url, oauthErrorCode(error)), 303, {
+      'Set-Cookie': clearOAuthStateCookie(),
+    });
+  }
+}
+
+async function handleOAuthCallback(provider: OAuthProvider, request: Request, url: URL) {
+  try {
+    const result = await completeCustomerOAuth(provider, request, await readOAuthCallbackInput(request, url));
+    if (result.created) {
+      void sendTemplateEmailQuietly('user_greeting', result.actor.email, {
+        name: result.actor.name || result.actor.email,
+        email: result.actor.email,
+      });
+    }
+    const cookies = authCookieHeaders(result)['Set-Cookie'];
+    return redirectResponse(result.redirectUrl, 303, {
+      'Set-Cookie': [...cookies, clearOAuthStateCookie()],
+    });
+  } catch (error) {
+    if (!(error instanceof AppError)) console.error(error);
+    return redirectResponse(oauthFailureRedirectUrl(request, provider, oauthErrorCode(error)), 303, {
+      'Set-Cookie': clearOAuthStateCookie(),
+    });
+  }
+}
+
 async function assertRateLimit(request: Request, scope: string, subject: string, max: number, windowSeconds: number) {
   const result = await rateLimit(`rl:${scope}:${clientIp(request)}:${subject}`, max, windowSeconds);
   if (!result.allowed) {
@@ -77,9 +186,20 @@ async function route(request: Request) {
 
   const url = new URL(request.url);
   const parts = pathParts(url);
+  const oauthProvider = parts[0] === 'api' && parts[1] === 'auth' && parts[2] === 'oauth' && isOAuthProvider(parts[3])
+    ? parts[3]
+    : null;
 
   if (request.method === 'GET' && url.pathname === '/health') {
     return json(request, { ok: true, service: 'manle-api' });
+  }
+
+  if (oauthProvider && parts[4] === 'start' && request.method === 'GET') {
+    return await handleOAuthStart(oauthProvider, request, url);
+  }
+
+  if (oauthProvider && parts[4] === 'callback' && (request.method === 'GET' || request.method === 'POST')) {
+    return await handleOAuthCallback(oauthProvider, request, url);
   }
 
   if (request.method === 'GET' && url.pathname === '/api/me') {
@@ -106,6 +226,10 @@ async function route(request: Request) {
     const body = await readJson<{ name?: string; email?: string; password?: string }>(request);
     await assertRateLimit(request, 'signup', String(body.email || '').toLowerCase(), 8, 300);
     const result = await signupCustomer(body);
+    void sendTemplateEmailQuietly('user_greeting', result.actor.email, {
+      name: result.actor.name || result.actor.email,
+      email: result.actor.email,
+    });
     return json(request, await accountEntitlements(result.actor), 201, authCookieHeaders(result));
   }
 
@@ -114,6 +238,18 @@ async function route(request: Request) {
     await assertRateLimit(request, 'login', String(body.email || '').toLowerCase(), 10, 300);
     const result = await loginCustomer(body);
     return json(request, await accountEntitlements(result.actor), 200, authCookieHeaders(result));
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/auth/forgot-password') {
+    const body = await readJson<{ email?: string }>(request);
+    await assertRateLimit(request, 'password-reset-request', String(body.email || '').toLowerCase(), 5, 300);
+    return json(request, await requestPasswordReset(body));
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/auth/reset-password') {
+    const body = await readJson<{ token?: string; password?: string }>(request);
+    await assertRateLimit(request, 'password-reset', clientIp(request), 10, 300);
+    return json(request, await resetPassword(body));
   }
 
   if (request.method === 'POST' && url.pathname === '/api/auth/refresh') {
@@ -281,6 +417,36 @@ async function route(request: Request) {
 
   if (request.method === 'GET' && url.pathname === '/api/admin/audit') {
     return json(request, { logs: await auditLogs() });
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/admin/email/settings') {
+    return json(request, { settings: await getEmailSettings() });
+  }
+
+  if (request.method === 'PATCH' && url.pathname === '/api/admin/email/settings') {
+    return json(request, { settings: await updateEmailSettings(actor, await readJson(request)) });
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/admin/email/templates') {
+    return json(request, { templates: await listEmailTemplates() });
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/admin/email/templates') {
+    return json(request, { template: await upsertEmailTemplate(actor, await readJson(request)) }, 201);
+  }
+
+  const emailTemplateKey = idAt(parts, ['api', 'admin', 'email', 'templates']);
+  if (emailTemplateKey && request.method === 'GET') {
+    return json(request, { template: await getEmailTemplate(decodeURIComponent(emailTemplateKey)) });
+  }
+
+  if (emailTemplateKey && request.method === 'PATCH') {
+    const body = await readJson<Record<string, unknown>>(request);
+    return json(request, { template: await upsertEmailTemplate(actor, { ...body, key: decodeURIComponent(emailTemplateKey) } as any) });
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/admin/email/test') {
+    return json(request, await sendTestEmail(actor, await readJson(request)));
   }
 
   return json(request, { error: { code: 'not_found', message: 'Route not found.' } }, 404);

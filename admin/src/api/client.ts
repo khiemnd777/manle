@@ -117,6 +117,36 @@ export type AuditLog = {
   createdAt: string;
 };
 
+export type EmailSettings = {
+  provider: 'resend';
+  enabled: boolean;
+  fromEmail: string;
+  fromName: string;
+  replyToEmail: string | null;
+  hasResendApiKey: boolean;
+  resendApiKeyPreview: string | null;
+  updatedAt: string;
+};
+
+export type EmailVariable = {
+  text: string;
+  label: string;
+};
+
+export type EmailTemplate = {
+  key: string;
+  name: string;
+  description: string;
+  subject: string;
+  htmlBody: string;
+  textBody: string;
+  enabled: boolean;
+  system: boolean;
+  variables: EmailVariable[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -219,4 +249,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  emailSettings: () => apiFetch<{ settings: EmailSettings }>('/api/admin/email/settings'),
+  updateEmailSettings: (body: Partial<EmailSettings> & { resendApiKey?: string }) =>
+    apiFetch<{ settings: EmailSettings }>('/api/admin/email/settings', { method: 'PATCH', body: JSON.stringify(body) }),
+  emailTemplates: () => apiFetch<{ templates: EmailTemplate[] }>('/api/admin/email/templates'),
+  emailTemplate: (key: string) => apiFetch<{ template: EmailTemplate }>(`/api/admin/email/templates/${encodeURIComponent(key)}`),
+  createEmailTemplate: (body: Partial<EmailTemplate>) =>
+    apiFetch<{ template: EmailTemplate }>('/api/admin/email/templates', { method: 'POST', body: JSON.stringify(body) }),
+  updateEmailTemplate: (key: string, body: Partial<EmailTemplate>) =>
+    apiFetch<{ template: EmailTemplate }>(`/api/admin/email/templates/${encodeURIComponent(key)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  sendTestEmail: (body: { templateKey: string; to: string; variables?: Record<string, unknown> }) =>
+    apiFetch<{ ok: true; id: string | null }>('/api/admin/email/test', { method: 'POST', body: JSON.stringify(body) }),
 };

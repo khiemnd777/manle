@@ -3,6 +3,7 @@ import { db, one } from '../db/client';
 import { fail } from '../http/errors';
 import type { Actor } from '../types/admin';
 import { audit } from './admin';
+import { sendTemplateEmailQuietly } from './email';
 
 type PaddleEvent = {
   event_id?: string;
@@ -341,6 +342,43 @@ async function updatePromotionRedemption(data: Record<string, any>) {
   `;
 }
 
+function paddleAmount(data: Record<string, any>) {
+  const raw = data.details?.totals?.total
+    || data.totals?.total
+    || data.total
+    || data.amount
+    || '';
+  const amount = Number(raw);
+  if (Number.isFinite(amount) && String(raw).trim() !== '') {
+    return Math.abs(amount) >= 100 ? (amount / 100).toFixed(2) : amount.toFixed(2);
+  }
+  return String(raw || '');
+}
+
+async function sendPaymentConfirmation(data: Record<string, any>) {
+  const userId = await findUserForPaddleData(data);
+  if (!userId) return;
+  const sql = db();
+  const user = await one<{ email: string; name: string; currentTierCode: string }>(sql`
+    select email, name, current_tier_code as "currentTierCode"
+    from users
+    where id = ${userId}
+    limit 1
+  `);
+  if (!user) return;
+  const tierCode = await tierFromPaddleData(data);
+  await sendTemplateEmailQuietly('payment_confirmation', user.email, {
+    name: user.name || user.email,
+    email: user.email,
+    tierCode: tierCode || user.currentTierCode || 'free',
+    amount: paddleAmount(data),
+    currency: data.currency_code || data.currency || data.details?.totals?.currency_code || '',
+    transactionId: data.id || data.transaction_id || '',
+    subscriptionId: data.subscription_id || data.subscription?.id || '',
+    paymentDate: data.billed_at || data.created_at || new Date().toISOString(),
+  });
+}
+
 export async function handlePaddleWebhook(rawBody: string, signatureHeader: string | null) {
   await verifyPaddleWebhook(rawBody, signatureHeader);
   const payload = JSON.parse(rawBody) as PaddleEvent;
@@ -366,6 +404,9 @@ export async function handlePaddleWebhook(rawBody: string, signatureHeader: stri
     if (type === 'subscription.created' || type === 'subscription.updated') {
       await updatePromotionRedemption(data);
     }
+  }
+  if (type === 'transaction.completed' || type === 'transaction.paid') {
+    void sendPaymentConfirmation(data).catch(error => console.error('Payment confirmation email failed', error));
   }
 
   return { ok: true, duplicate: false, eventId: id, eventType: type };

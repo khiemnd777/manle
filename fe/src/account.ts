@@ -112,9 +112,12 @@ let paddleScriptPromise: Promise<void> | null = null;
 let paddleInitializedToken = '';
 let refreshPromise: Promise<boolean> | null = null;
 type ProfileSection = 'account' | 'password';
+type AuthMode = 'login' | 'signup' | 'forgot' | 'reset';
+type OAuthProvider = 'google' | 'apple';
 let profileSection: ProfileSection = 'account';
 let checkoutButtonsBound = false;
 let pricingTiers: PricingTier[] = [];
+let oauthCheckoutResumeAttempted = false;
 const FEATURE_AUTH_TTL_MS = 60_000;
 const featureAuthorizationExpiresAt = new Map<FeatureKey, number>();
 
@@ -201,6 +204,8 @@ function canRefresh(path: string) {
   return !path.includes('/auth/login')
     && !path.includes('/auth/logout')
     && !path.includes('/auth/signup')
+    && !path.includes('/auth/forgot-password')
+    && !path.includes('/auth/reset-password')
     && !path.includes('/auth/refresh');
 }
 
@@ -419,8 +424,16 @@ function renderAccount() {
   window.dispatchEvent(new CustomEvent('manle:account-rendered'));
 }
 
-function openAuth(mode: 'login' | 'signup' = 'login', tierCode?: string) {
-  pendingCheckoutTier = tierCode || pendingCheckoutTier;
+function setAuthMessage(value = '', kind: 'info' | 'success' | 'error' = 'info') {
+  const el = byId('authMessage');
+  if (!el) return;
+  el.textContent = value;
+  el.hidden = !value;
+  el.className = `auth-message is-${kind}`;
+}
+
+function openAuth(mode: AuthMode = 'login', tierCode?: string) {
+  if (mode === 'login' || mode === 'signup') pendingCheckoutTier = tierCode || pendingCheckoutTier;
   const modal = byId('authModal');
   if (modal) modal.hidden = false;
   setAuthMode(mode);
@@ -429,16 +442,94 @@ function openAuth(mode: 'login' | 'signup' = 'login', tierCode?: string) {
 function closeAuth() {
   const modal = byId('authModal');
   if (modal) modal.hidden = true;
+  setAuthMessage('');
 }
 
-function setAuthMode(mode: 'login' | 'signup') {
+function setAuthMode(mode: AuthMode) {
   const loginForm = byId('authLoginForm');
   const signupForm = byId('authSignupForm');
+  const forgotForm = byId('authForgotForm');
+  const resetForm = byId('authResetForm');
+  const oauthOptions = byId('authOAuthOptions');
   show(loginForm, mode === 'login');
   show(signupForm, mode === 'signup');
+  show(forgotForm, mode === 'forgot');
+  show(resetForm, mode === 'reset');
+  show(oauthOptions, mode === 'login' || mode === 'signup');
   document.querySelectorAll<HTMLElement>('[data-auth-mode]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.authMode === mode);
   });
+  const titles: Record<AuthMode, string> = {
+    login: 'MANLE Account',
+    signup: 'Create MANLE Account',
+    forgot: 'Reset password',
+    reset: 'Set new password',
+  };
+  text('authTitle', titles[mode]);
+  setAuthMessage('');
+}
+
+function cleanCurrentPathForOAuth() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('auth_error');
+  url.searchParams.delete('auth_provider');
+  url.searchParams.delete('checkout_tier');
+  return `${url.pathname}${url.search}${url.hash}` || '/generator';
+}
+
+function oauthProviderLabel(provider: string | null) {
+  return provider === 'apple' ? 'Apple' : provider === 'google' ? 'Google' : 'Social';
+}
+
+function oauthErrorMessage(code: string) {
+  const messages: Record<string, string> = {
+    oauth_access_denied: 'Login was cancelled.',
+    oauth_provider_unconfigured: 'This login provider is not configured yet.',
+    oauth_state_invalid: 'Login session expired. Please try again.',
+    oauth_email_missing: 'The provider did not return an email address.',
+    oauth_email_unverified: 'The provider email is not verified.',
+    oauth_account_disabled: 'This account cannot login.',
+    oauth_email_unavailable: 'This email cannot be used for customer login.',
+    oauth_token_exchange_failed: 'Could not complete provider login.',
+    oauth_token_invalid: 'Provider login token was invalid.',
+  };
+  return messages[code] || 'Could not complete social login.';
+}
+
+function clearQueryParams(keys: string[]) {
+  const url = new URL(window.location.href);
+  keys.forEach(key => url.searchParams.delete(key));
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}` || '/');
+}
+
+function startOAuth(provider: OAuthProvider) {
+  const params = new URLSearchParams({ next: cleanCurrentPathForOAuth() });
+  if (pendingCheckoutTier) params.set('checkoutTier', pendingCheckoutTier);
+  window.location.href = `${API_BASE}/api/auth/oauth/${provider}/start?${params.toString()}`;
+}
+
+function handleOAuthReturnError() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('auth_error');
+  if (!code) return;
+  const provider = params.get('auth_provider');
+  clearQueryParams(['auth_error', 'auth_provider']);
+  openAuth('login');
+  setAuthMessage(`${oauthProviderLabel(provider)} login failed. ${oauthErrorMessage(code)}`, 'error');
+}
+
+function resumeOAuthCheckoutFromUrl() {
+  if (oauthCheckoutResumeAttempted) return;
+  const tier = new URLSearchParams(window.location.search).get('checkout_tier');
+  if (!tier) return;
+  oauthCheckoutResumeAttempted = true;
+  clearQueryParams(['checkout_tier']);
+  if (!accountState.actor) {
+    openAuth('login');
+    setAuthMessage('Login completed, but checkout could not be resumed.', 'error');
+    return;
+  }
+  startCheckout(tier).catch(error => alert(error.message || error));
 }
 
 async function loadAccount() {
@@ -451,6 +542,7 @@ async function loadAccount() {
   if (nextActorId !== previousActorId) featureAuthorizationExpiresAt.clear();
   accountStateLoaded = true;
   renderAccount();
+  resumeOAuthCheckoutFromUrl();
 }
 
 async function submitAuth(form: HTMLFormElement, mode: 'login' | 'signup') {
@@ -469,12 +561,43 @@ async function submitAuth(form: HTMLFormElement, mode: 'login' | 'signup') {
   form.reset();
   closeAuth();
   setProfileMessage('');
+  setAuthMessage('');
   renderAccount();
   if (pendingCheckoutTier) {
     const tier = pendingCheckoutTier;
     pendingCheckoutTier = null;
     await startCheckout(tier);
   }
+}
+
+async function submitForgotPassword(form: HTMLFormElement) {
+  const email = String(new FormData(form).get('email') || '').trim();
+  if (!email.includes('@')) throw new Error('Valid email is required.');
+  setAuthMessage('Sending reset link...', 'info');
+  await apiFetch('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+  form.reset();
+  setAuthMessage('If an account exists for this email, a reset link has been sent.', 'success');
+}
+
+async function submitResetPassword(form: HTMLFormElement) {
+  const fd = new FormData(form);
+  const token = String(fd.get('token') || '').trim();
+  const password = String(fd.get('password') || '');
+  const confirmPassword = String(fd.get('confirmPassword') || '');
+  if (!token) throw new Error('Password reset token is missing.');
+  if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+  if (password !== confirmPassword) throw new Error('Password confirmation does not match.');
+  setAuthMessage('Saving new password...', 'info');
+  await apiFetch('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+  });
+  form.reset();
+  setAuthMode('login');
+  setAuthMessage('Password reset. You can login with the new password.', 'success');
 }
 
 async function logout() {
@@ -673,11 +796,19 @@ function bindAuthUi() {
   byId('profilePasswordTabBtn')?.addEventListener('click', () => setProfileSection('password', true));
   byId('profileBillingBtn')?.addEventListener('click', () => openProfileBilling().catch(error => alert(error.message || error)));
   byId('authCloseBtn')?.addEventListener('click', closeAuth);
+  byId('authForgotBtn')?.addEventListener('click', () => setAuthMode('forgot'));
+  byId('authBackToLoginBtn')?.addEventListener('click', () => setAuthMode('login'));
   byId('authModal')?.addEventListener('click', event => {
     if (event.target === event.currentTarget) closeAuth();
   });
   document.querySelectorAll<HTMLElement>('[data-auth-mode]').forEach(btn => {
     btn.addEventListener('click', () => setAuthMode(btn.dataset.authMode === 'signup' ? 'signup' : 'login'));
+  });
+  document.querySelectorAll<HTMLElement>('[data-oauth-provider]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const provider = btn.dataset.oauthProvider;
+      if (provider === 'google' || provider === 'apple') startOAuth(provider);
+    });
   });
   byId<HTMLFormElement>('authLoginForm')?.addEventListener('submit', event => {
     event.preventDefault();
@@ -686,6 +817,14 @@ function bindAuthUi() {
   byId<HTMLFormElement>('authSignupForm')?.addEventListener('submit', event => {
     event.preventDefault();
     submitAuth(event.currentTarget as HTMLFormElement, 'signup').catch(error => alert(error.message || error));
+  });
+  byId<HTMLFormElement>('authForgotForm')?.addEventListener('submit', event => {
+    event.preventDefault();
+    submitForgotPassword(event.currentTarget as HTMLFormElement).catch(error => setAuthMessage(error.message || String(error), 'error'));
+  });
+  byId<HTMLFormElement>('authResetForm')?.addEventListener('submit', event => {
+    event.preventDefault();
+    submitResetPassword(event.currentTarget as HTMLFormElement).catch(error => setAuthMessage(error.message || String(error), 'error'));
   });
   byId<HTMLFormElement>('profileForm')?.addEventListener('submit', event => {
     event.preventDefault();
@@ -697,6 +836,15 @@ function bindAuthUi() {
   });
   byId('landingLogoutBtn')?.addEventListener('click', () => logout().catch(error => alert(error.message || error)));
   byId('profileLogoutBtn')?.addEventListener('click', () => logout().catch(error => alert(error.message || error)));
+
+  const resetToken = new URLSearchParams(window.location.search).get('reset_token');
+  if (resetToken) {
+    setInputValue('authResetTokenInput', resetToken, true);
+    openAuth('reset');
+    const nextUrl = `${window.location.pathname}${window.location.hash}`;
+    window.history.replaceState(null, '', nextUrl || '/');
+  }
+  handleOAuthReturnError();
 }
 
 function bindCheckoutButtons() {
