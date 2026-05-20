@@ -1,6 +1,4 @@
-import { EditorContent, useEditor } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import {
   Actor,
   ApiError,
@@ -17,6 +15,7 @@ import {
   SystemUser,
   api,
 } from './api/client';
+import { htmlToText } from './emailText';
 
 type View = 'users' | 'customers' | 'subscriptions' | 'promotions' | 'tiers' | 'entitlements' | 'emails' | 'audit' | 'profile';
 
@@ -38,6 +37,8 @@ type SelectOption = {
   value: string;
   label: string;
 };
+
+const RichTextEditor = lazy(() => import('./RichTextEditor'));
 
 const emptyData: AdminData = {
   overview: { systemUsers: 0, customers: 0, activeSubscriptions: 0, activePromotions: 0, activeTiers: 0 },
@@ -99,20 +100,6 @@ function normalizeEmailVariables(value: unknown): EmailVariable[] {
 
 function testVariableValues(form: HTMLFormElement, variables: EmailVariable[]) {
   return Object.fromEntries(variables.map(variable => [variable.text, field(form, `var:${variable.text}`)]));
-}
-
-function htmlToText(html: string) {
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .trim();
 }
 
 function cents(value: number) {
@@ -273,69 +260,27 @@ function Switcher({
   );
 }
 
-function RichTextEditor({
-  name,
-  initialHtml,
-  variables,
-}: {
-  name: string;
-  initialHtml?: string;
-  variables: EmailVariable[];
-}) {
-  const [html, setHtml] = useState(initialHtml || '<p></p>');
-  const editor = useEditor({
-    extensions: [StarterKit],
-    content: initialHtml || '<p></p>',
-    immediatelyRender: false,
-    onUpdate: ({ editor: currentEditor }) => setHtml(currentEditor.getHTML()),
-  });
-
-  useEffect(() => {
-    if (!editor) return;
-    const nextHtml = initialHtml || '<p></p>';
-    editor.commands.setContent(nextHtml);
-    setHtml(nextHtml);
-  }, [editor, initialHtml]);
-
+function RichTextEditorFallback({ name, initialHtml }: { name: string; initialHtml: string }) {
   return (
-    <div className="rich-editor">
-      <input type="hidden" name={name} value={html} readOnly />
-      <input type="hidden" name="textBody" value={htmlToText(html)} readOnly />
-      <div className="rich-toolbar" aria-label="Editor toolbar">
-        <button type="button" className={editor?.isActive('bold') ? 'active' : ''} onClick={() => editor?.chain().focus().toggleBold().run()}>B</button>
-        <button type="button" className={editor?.isActive('italic') ? 'active' : ''} onClick={() => editor?.chain().focus().toggleItalic().run()}>I</button>
-        <button type="button" onClick={() => editor?.chain().focus().toggleBulletList().run()}>Bullets</button>
-        <button type="button" onClick={() => editor?.chain().focus().toggleOrderedList().run()}>Numbers</button>
-        <button type="button" onClick={() => editor?.chain().focus().undo().run()}>Undo</button>
-        <button type="button" onClick={() => editor?.chain().focus().redo().run()}>Redo</button>
-      </div>
-      {variables.length > 0 && (
-        <div className="variable-pills" aria-label="Insert variable">
-          {variables.map(variable => (
-            <button
-              type="button"
-              className="ghost-button"
-              key={variable.text}
-              onClick={() => editor?.chain().focus().insertContent(`{{${variable.text}}}`).run()}
-            >
-              {variable.label}
-            </button>
-          ))}
-        </div>
-      )}
-      <EditorContent editor={editor} />
+    <div className="rich-editor is-loading" aria-busy="true">
+      <input type="hidden" name={name} value={initialHtml} readOnly />
+      <input type="hidden" name="textBody" value={htmlToText(initialHtml)} readOnly />
+      <div className="empty">Loading editor...</div>
     </div>
   );
 }
 
 function EmailTemplateFields({ template }: { template?: EmailTemplate }) {
   const variables = normalizeEmailVariables(template?.variables || []);
+  const initialHtml = template?.htmlBody || '<p></p>';
 
   return (
     <>
       <VariablesList variables={variables} />
       <div className="field-label">Email body</div>
-      <RichTextEditor name="htmlBody" initialHtml={template?.htmlBody || '<p></p>'} variables={variables} />
+      <Suspense fallback={<RichTextEditorFallback name="htmlBody" initialHtml={initialHtml} />}>
+        <RichTextEditor name="htmlBody" initialHtml={initialHtml} variables={variables} />
+      </Suspense>
     </>
   );
 }
