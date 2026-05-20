@@ -218,11 +218,15 @@ export const api = {
     apiFetch<{ user: SystemUser }>('/api/admin/system-users', { method: 'POST', body: JSON.stringify(body) }),
   updateSystemUser: (id: string, body: Partial<SystemUser> & { password?: string }) =>
     apiFetch<{ user: SystemUser }>(`/api/admin/system-users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteSystemUser: (id: string) =>
+    apiFetch<{ ok: true }>(`/api/admin/system-users/${id}`, { method: 'DELETE' }),
   customers: (search = '') => apiFetch<{ customers: Customer[] }>(`/api/admin/customers?search=${encodeURIComponent(search)}`),
   createCustomer: (body: Partial<Customer>) =>
     apiFetch<{ customer: Customer }>('/api/admin/customers', { method: 'POST', body: JSON.stringify(body) }),
   updateCustomer: (id: string, body: Partial<Customer>) =>
     apiFetch<{ customer: Customer }>(`/api/admin/customers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteCustomer: (id: string) =>
+    apiFetch<{ ok: true }>(`/api/admin/customers/${id}`, { method: 'DELETE' }),
   customerEntitlements: (id: string) =>
     apiFetch<{ userId: string; tierCode: string; entitlements: Record<string, unknown> }>(`/api/admin/customers/${id}/entitlements`),
   subscriptions: () => apiFetch<{ subscriptions: Subscription[] }>('/api/admin/subscriptions'),
@@ -240,6 +244,8 @@ export const api = {
     apiFetch<{ tier: { code: string } }>('/api/admin/price-tiers', { method: 'POST', body: JSON.stringify(body) }),
   updatePriceTier: (code: string, body: Partial<PriceTier>) =>
     apiFetch<{ tier: { code: string } }>(`/api/admin/price-tiers/${code}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deletePriceTier: (code: string) =>
+    apiFetch<{ ok: true }>(`/api/admin/price-tiers/${encodeURIComponent(code)}`, { method: 'DELETE' }),
   entitlements: () => apiFetch<{ definitions: EntitlementDefinition[]; tiers: PriceTier[]; grants: EntitlementGrant[] }>('/api/admin/entitlements'),
   updateTierEntitlement: (tierCode: string, key: string, body: { enabled: boolean; value: unknown }) =>
     apiFetch<{ grant: EntitlementGrant }>(`/api/admin/entitlements/${tierCode}/${key}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -258,6 +264,8 @@ export const api = {
     apiFetch<{ template: EmailTemplate }>('/api/admin/email/templates', { method: 'POST', body: JSON.stringify(body) }),
   updateEmailTemplate: (key: string, body: Partial<EmailTemplate>) =>
     apiFetch<{ template: EmailTemplate }>(`/api/admin/email/templates/${encodeURIComponent(key)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteEmailTemplate: (key: string) =>
+    apiFetch<{ ok: true }>(`/api/admin/email/templates/${encodeURIComponent(key)}`, { method: 'DELETE' }),
   sendTestEmail: (body: { templateKey: string; to: string; variables?: Record<string, unknown> }) =>
     apiFetch<{ ok: true; id: string | null }>('/api/admin/email/test', { method: 'POST', body: JSON.stringify(body) }),
 };

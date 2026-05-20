@@ -208,6 +208,49 @@ export async function updateSystemUser(actor: Actor, id: string, input: SystemUs
   return row;
 }
 
+export async function deleteSystemUser(actor: Actor, id: string) {
+  if (id === actor.id) fail(400, 'self_delete_not_allowed', 'You cannot delete your own account.');
+
+  const sql = db();
+  const current = await one<{ id: string; email: string; name: string; role: SystemUserRole; status: 'active' | 'disabled' }>(sql`
+    select id, email, name, role, status
+    from users
+    where id = ${id}
+      and role in ('admin', 'user')
+    limit 1
+  `);
+  if (!current) fail(404, 'system_user_not_found', 'System user not found.');
+
+  if (current.role === 'admin' && current.status === 'active') {
+    const remainingAdmins = await one<{ count: string }>(sql`
+      select count(*)::text as count
+      from users
+      where role = 'admin'
+        and status = 'active'
+        and id <> ${id}
+    `);
+    if (Number(remainingAdmins?.count || 0) < 1) {
+      fail(400, 'last_admin_required', 'At least one active admin must remain.');
+    }
+  }
+
+  const row = await one<{ id: string }>(sql`
+    delete from users
+    where id = ${id}
+      and role in ('admin', 'user')
+    returning id
+  `);
+  if (!row) fail(500, 'system_user_delete_failed', 'Could not delete system user.');
+
+  await audit(actor, 'system_user.delete', 'user', id, {
+    email: current.email,
+    name: current.name,
+    role: current.role,
+    status: current.status,
+  });
+  return { ok: true };
+}
+
 export async function listCustomers(search = '') {
   const sql = db();
   const pattern = `%${search.trim().toLowerCase()}%`;
@@ -282,6 +325,34 @@ export async function updateCustomer(actor: Actor, id: string, input: CustomerIn
   `);
   await audit(actor, 'customer.update', 'user', id, input as Record<string, unknown>);
   return row;
+}
+
+export async function deleteCustomer(actor: Actor, id: string) {
+  const sql = db();
+  const current = await one<{ id: string; email: string; name: string; currentTierCode: string; status: string }>(sql`
+    select id, email, name, current_tier_code as "currentTierCode", status
+    from users
+    where id = ${id}
+      and role = 'customer'
+    limit 1
+  `);
+  if (!current) fail(404, 'customer_not_found', 'Customer not found.');
+
+  const row = await one<{ id: string }>(sql`
+    delete from users
+    where id = ${id}
+      and role = 'customer'
+    returning id
+  `);
+  if (!row) fail(500, 'customer_delete_failed', 'Could not delete customer.');
+
+  await audit(actor, 'customer.delete', 'user', id, {
+    email: current.email,
+    name: current.name,
+    currentTierCode: current.currentTierCode,
+    status: current.status,
+  });
+  return { ok: true };
 }
 
 export async function listSubscriptions(userId?: string) {
@@ -535,6 +606,48 @@ export async function upsertPriceTier(actor: Actor, input: TierInput) {
   `;
   await audit(actor, 'tier.upsert', 'price_tier', code, input as Record<string, unknown>);
   return row;
+}
+
+export async function deletePriceTier(actor: Actor, code: string) {
+  const tierCode = cleanText(code).toLowerCase();
+  if (!tierCode) fail(400, 'missing_code', 'Tier code is required.');
+
+  const sql = db();
+  const current = await one<{ code: string; name: string }>(sql`
+    select code, name
+    from price_tiers
+    where code = ${tierCode}
+    limit 1
+  `);
+  if (!current) fail(404, 'tier_not_found', 'Tier not found.');
+
+  const [users, subscriptions, promotions, exportUsage] = await Promise.all([
+    one<{ count: string }>(sql`select count(*)::text as count from users where current_tier_code = ${tierCode}`),
+    one<{ count: string }>(sql`select count(*)::text as count from subscriptions where tier_code = ${tierCode}`),
+    one<{ count: string }>(sql`select count(*)::text as count from promotions where tier_code = ${tierCode}`),
+    one<{ count: string }>(sql`select count(*)::text as count from export_usage where tier_code = ${tierCode}`),
+  ]);
+  const references = {
+    users: Number(users?.count || 0),
+    subscriptions: Number(subscriptions?.count || 0),
+    promotions: Number(promotions?.count || 0),
+    exportUsage: Number(exportUsage?.count || 0),
+  };
+  if (Object.values(references).some(count => count > 0)) {
+    fail(409, 'tier_in_use', 'Tier is still assigned to users, subscriptions, promotions, or export usage.');
+  }
+
+  const row = await one<{ code: string }>(sql`
+    delete from price_tiers
+    where code = ${tierCode}
+    returning code
+  `);
+  if (!row) fail(500, 'tier_delete_failed', 'Could not delete tier.');
+
+  await audit(actor, 'tier.delete', 'price_tier', tierCode, {
+    name: current.name,
+  });
+  return { ok: true };
 }
 
 export async function listEntitlements() {

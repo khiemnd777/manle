@@ -315,6 +315,32 @@ export async function upsertEmailTemplate(actor: Actor, input: EmailTemplateInpu
   return { ...(row as any), variables: normalizeVariables((row as any).variables) };
 }
 
+export async function deleteEmailTemplate(actor: Actor, key: string) {
+  const templateKey = cleanTemplateKey(key);
+  const sql = db();
+  const current = await one<{ key: string; name: string; system: boolean }>(sql`
+    select key, name, system
+    from email_templates
+    where key = ${templateKey}
+    limit 1
+  `);
+  if (!current) fail(404, 'email_template_not_found', 'Email template not found.');
+  if (current.system) fail(400, 'system_email_template_required', 'System email templates cannot be deleted.');
+
+  const row = await one<{ key: string }>(sql`
+    delete from email_templates
+    where key = ${templateKey}
+      and system = false
+    returning key
+  `);
+  if (!row) fail(500, 'email_template_delete_failed', 'Could not delete email template.');
+
+  await audit(actor, 'email.template.delete', 'email_template', templateKey, {
+    name: current.name,
+  });
+  return { ok: true };
+}
+
 async function logSend(
   templateKey: string,
   recipientEmail: string,

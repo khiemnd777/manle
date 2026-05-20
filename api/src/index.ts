@@ -31,6 +31,9 @@ import {
   createPromotion,
   createSubscription,
   createSystemUser,
+  deleteCustomer,
+  deletePriceTier,
+  deleteSystemUser,
   effectiveEntitlementsForUser,
   getSystemUser,
   listCustomers,
@@ -50,6 +53,7 @@ import {
 } from './services/admin';
 import { accountEntitlements, authorizeExport, authorizeFeature } from './services/entitlements';
 import {
+  deleteEmailTemplate,
   getEmailSettings,
   getEmailTemplate,
   listEmailTemplates,
@@ -338,6 +342,10 @@ async function route(request: Request) {
     return json(request, { user: await updateSystemUser(actor, systemUserId, await readJson(request)) });
   }
 
+  if (systemUserId && request.method === 'DELETE') {
+    return json(request, await deleteSystemUser(actor, systemUserId));
+  }
+
   if (request.method === 'POST' && url.pathname === '/api/admin/paddle/sync') {
     return json(request, await syncPaddleSubscription(actor, await readJson(request)));
   }
@@ -353,6 +361,10 @@ async function route(request: Request) {
   const customerId = idAt(parts, ['api', 'admin', 'customers']);
   if (customerId && request.method === 'PATCH') {
     return json(request, { customer: await updateCustomer(actor, customerId, await readJson(request)) });
+  }
+
+  if (customerId && request.method === 'DELETE') {
+    return json(request, await deleteCustomer(actor, customerId));
   }
 
   if (parts.length === 5 && parts[0] === 'api' && parts[1] === 'admin' && parts[2] === 'customers' && parts[4] === 'entitlements' && request.method === 'GET') {
@@ -399,6 +411,10 @@ async function route(request: Request) {
     return json(request, { tier: await upsertPriceTier(actor, { ...body, code: tierCode } as any) });
   }
 
+  if (tierCode && request.method === 'DELETE') {
+    return json(request, await deletePriceTier(actor, decodeURIComponent(tierCode)));
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/admin/entitlements') {
     return json(request, await listEntitlements());
   }
@@ -443,6 +459,10 @@ async function route(request: Request) {
   if (emailTemplateKey && request.method === 'PATCH') {
     const body = await readJson<Record<string, unknown>>(request);
     return json(request, { template: await upsertEmailTemplate(actor, { ...body, key: decodeURIComponent(emailTemplateKey) } as any) });
+  }
+
+  if (emailTemplateKey && request.method === 'DELETE') {
+    return json(request, await deleteEmailTemplate(actor, decodeURIComponent(emailTemplateKey)));
   }
 
   if (request.method === 'POST' && url.pathname === '/api/admin/email/test') {

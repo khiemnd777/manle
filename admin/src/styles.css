@@ -36,6 +36,14 @@ button {
 }
 
 button:hover { background: var(--teal); border-color: var(--teal); }
+button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+button:disabled:hover {
+  background: var(--navy);
+  border-color: var(--navy);
+}
 .ghost-button {
   background: #fff;
   border-color: var(--line);
@@ -45,6 +53,20 @@ button:hover { background: var(--teal); border-color: var(--teal); }
   background: #f8f8fb;
   border-color: var(--navy);
   color: var(--navy);
+}
+.ghost-button:disabled:hover {
+  background: #fff;
+  border-color: var(--line);
+  color: var(--navy);
+}
+.danger-button {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.danger-button:hover {
+  background: #8f1d13;
+  border-color: #8f1d13;
 }
 input, select, textarea {
   width: 100%;
@@ -340,6 +362,44 @@ th {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .05em;
+}
+.sort-button {
+  min-height: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  padding: 2px 0;
+  font-size: inherit;
+  font-weight: 900;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+}
+.sort-button:hover,
+.sort-button.active {
+  background: transparent;
+  border-color: transparent;
+  color: var(--navy);
+}
+.sort-indicator {
+  width: 14px;
+  height: 14px;
+  color: var(--navy);
+  display: inline-flex;
+  flex: 0 0 14px;
+}
+.sort-icon {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
 }
 td button {
   font-size: 12px;

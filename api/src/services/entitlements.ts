@@ -13,6 +13,7 @@ const FEATURE_ENTITLEMENT_KEYS = {
   branding: 'branding',
   style_editor: 'style_editor',
   benefit_editor: 'benefit_editor',
+  custom_template: 'custom_template',
 } as const;
 
 type FeatureKey = keyof typeof FEATURE_ENTITLEMENT_KEYS;
@@ -135,7 +136,7 @@ export async function authorizeFeature(actor: Actor, input: { feature?: string }
   const feature = String(input.feature || '').toLowerCase();
   const entitlementKey = FEATURE_ENTITLEMENT_KEYS[feature as FeatureKey];
   if (!entitlementKey) {
-    fail(400, 'invalid_feature', 'Feature must be branding, style_editor, or benefit_editor.');
+    fail(400, 'invalid_feature', 'Feature must be branding, style_editor, benefit_editor, or custom_template.');
   }
 
   const effective = await effectiveEntitlementsForUser(actor.id);

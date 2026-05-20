@@ -38,6 +38,13 @@ type SelectOption = {
   label: string;
 };
 
+type SortDirection = 'asc' | 'desc';
+type SortValue = string | number | boolean | null | undefined;
+type SortState<Key extends string> = {
+  key: Key;
+  direction: SortDirection;
+};
+
 const RichTextEditor = lazy(() => import('./RichTextEditor'));
 
 const emptyData: AdminData = {
@@ -111,11 +118,150 @@ function dateOnly(value?: string | null) {
   return new Date(value).toLocaleDateString();
 }
 
+function timestamp(value?: string | null) {
+  if (!value) return null;
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? time : null;
+}
+
+function compareSortValues(a: SortValue, b: SortValue, direction: SortDirection) {
+  const aEmpty = a == null || a === '';
+  const bEmpty = b == null || b === '';
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+
+  const multiplier = direction === 'asc' ? 1 : -1;
+  const normalizedA = typeof a === 'boolean' ? Number(a) : a;
+  const normalizedB = typeof b === 'boolean' ? Number(b) : b;
+  if (typeof normalizedA === 'number' && typeof normalizedB === 'number') {
+    return (normalizedA - normalizedB) * multiplier;
+  }
+
+  return String(normalizedA).localeCompare(String(normalizedB), undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  }) * multiplier;
+}
+
+function sortedRows<T, Key extends string>(
+  rows: T[],
+  sort: SortState<Key> | null,
+  accessors: Record<Key, (row: T) => SortValue>,
+) {
+  if (!sort) return rows;
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      const result = compareSortValues(accessors[sort.key](a.row), accessors[sort.key](b.row), sort.direction);
+      return result || a.index - b.index;
+    })
+    .map(item => item.row);
+}
+
+function nextSortState<Key extends string>(current: SortState<Key> | null, key: Key): SortState<Key> {
+  if (!current || current.key !== key) return { key, direction: 'asc' };
+  return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+}
+
+function SortIcon({ direction }: { direction: SortDirection | null }) {
+  return (
+    <svg className="sort-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {direction === 'asc' && <path d="m18 15-6-6-6 6" />}
+      {direction === 'desc' && <path d="m6 9 6 6 6-6" />}
+      {!direction && (
+        <>
+          <path d="m7 9 5-5 5 5" />
+          <path d="m7 15 5 5 5-5" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function SortableTh<Key extends string>({
+  label,
+  column,
+  sort,
+  onSort,
+}: {
+  label: string;
+  column: Key;
+  sort: SortState<string> | null;
+  onSort: (column: Key) => void;
+}) {
+  const active = sort?.key === column;
+  return (
+    <th aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button
+        type="button"
+        className={`sort-button${active ? ' active' : ''}`}
+        onClick={() => onSort(column)}
+      >
+        <span>{label}</span>
+        <span className="sort-indicator">
+          <SortIcon direction={active ? sort.direction : null} />
+        </span>
+      </button>
+    </th>
+  );
+}
+
 function StatusBadge({ value }: { value?: string | boolean | null }) {
   const text = value == null ? 'none' : String(value);
   const kind = text === 'active' || text === 'true' || text === 'trialing' ? 'good' : text === 'disabled' || text === 'false' ? 'bad' : 'neutral';
   return <span className={`status status-${kind}`}>{text}</span>;
 }
+
+type SystemUserSortKey = 'name' | 'email' | 'role' | 'status' | 'createdAt';
+const systemUserSortAccessors: Record<SystemUserSortKey, (user: SystemUser) => SortValue> = {
+  name: user => user.name,
+  email: user => user.email,
+  role: user => user.role === 'user' ? 'normal user' : user.role,
+  status: user => user.status,
+  createdAt: user => timestamp(user.createdAt),
+};
+
+type CustomerSortKey = 'name' | 'email' | 'tier' | 'subscription' | 'exports' | 'status';
+const customerSortAccessors: Record<CustomerSortKey, (customer: Customer) => SortValue> = {
+  name: customer => customer.name,
+  email: customer => customer.email,
+  tier: customer => customer.subscriptionTier || customer.currentTierCode,
+  subscription: customer => customer.subscriptionStatus || 'none',
+  exports: customer => customer.exportsToday || 0,
+  status: customer => customer.status,
+};
+
+type SubscriptionSortKey = 'customer' | 'status' | 'tier' | 'paddleSubscription' | 'periodEnd' | 'flags';
+const subscriptionSortAccessors: Record<SubscriptionSortKey, (subscription: Subscription) => SortValue> = {
+  customer: subscription => `${subscription.customerName} ${subscription.customerEmail}`,
+  status: subscription => subscription.status,
+  tier: subscription => subscription.tierCode,
+  paddleSubscription: subscription => subscription.paddleSubscriptionId,
+  periodEnd: subscription => timestamp(subscription.currentPeriodEnd),
+  flags: subscription => `${subscription.cancelAtPeriodEnd ? 'canceling ' : ''}${subscription.manualOverride ? 'manual' : 'Paddle'}`,
+};
+
+type PromotionSortKey = 'code' | 'name' | 'tier' | 'discount' | 'redemptions' | 'active';
+const promotionSortAccessors: Record<PromotionSortKey, (promotion: Promotion) => SortValue> = {
+  code: promotion => promotion.code,
+  name: promotion => promotion.name,
+  tier: promotion => promotion.tierCode || 'any',
+  discount: promotion => `${promotion.discountType} ${promotion.discountValue}`,
+  redemptions: promotion => promotion.redemptionCount,
+  active: promotion => promotion.active,
+};
+
+type PriceTierSortKey = 'tier' | 'price' | 'paddlePrice' | 'exports' | 'badge' | 'flags' | 'active';
+const priceTierSortAccessors: Record<PriceTierSortKey, (tier: PriceTier) => SortValue> = {
+  tier: tier => tier.name,
+  price: tier => tier.monthlyPriceCents,
+  paddlePrice: tier => tier.paddlePriceId,
+  exports: tier => tier.exportLimitPerDay,
+  badge: tier => tier.pricingBadge,
+  flags: tier => `${tier.watermarkEnabled ? 'watermark ' : ''}${tier.brandingEnabled ? 'branding ' : ''}${tier.styleEditorEnabled ? 'style ' : ''}${tier.benefitEditorEnabled ? 'benefit' : ''}`,
+  active: tier => tier.active,
+};
 
 const customerStatusOptions: SelectOption[] = [
   { value: 'active', label: 'active' },
@@ -589,6 +735,12 @@ function SystemUsersView({
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [sort, setSort] = useState<SortState<SystemUserSortKey> | null>(null);
+  const users = useMemo(() => sortedRows(data.systemUsers, sort, systemUserSortAccessors), [data.systemUsers, sort]);
+
+  function sortBy(column: SystemUserSortKey) {
+    setSort(current => nextSortState(current, column));
+  }
 
   async function runSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -662,6 +814,24 @@ function SystemUsersView({
     }
   }
 
+  async function deleteUser(user: SystemUser) {
+    if (user.id === actor.id) {
+      setError('Use the profile page to manage your own account.');
+      return;
+    }
+    if (!window.confirm(`Delete system user ${user.email}? This cannot be undone.`)) return;
+    setError('');
+    setMessage('');
+    try {
+      await api.deleteSystemUser(user.id);
+      if (editing?.id === user.id) setEditing(null);
+      setMessage('System user deleted.');
+      await reload('', search);
+    } catch (err) {
+      setError(messageFromError(err));
+    }
+  }
+
   return (
     <section className="panel">
       <div className="panel-head">
@@ -677,16 +847,28 @@ function SystemUsersView({
       {message && <div className="success-box compact">{message}</div>}
       {error && <div className="error-box compact">{error}</div>}
       <table>
-        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            <SortableTh label="Name" column="name" sort={sort} onSort={sortBy} />
+            <SortableTh label="Email" column="email" sort={sort} onSort={sortBy} />
+            <SortableTh label="Role" column="role" sort={sort} onSort={sortBy} />
+            <SortableTh label="Status" column="status" sort={sort} onSort={sortBy} />
+            <SortableTh label="Created" column="createdAt" sort={sort} onSort={sortBy} />
+            <th></th>
+          </tr>
+        </thead>
         <tbody>
-          {data.systemUsers.map(user => (
+          {users.map(user => (
             <tr key={user.id}>
               <td>{user.name}</td>
               <td>{user.email}</td>
               <td>{user.role === 'user' ? 'normal user' : user.role}</td>
               <td><StatusBadge value={user.status} /></td>
               <td>{dateOnly(user.createdAt)}</td>
-              <td><button type="button" onClick={() => openEdit(user)}>{user.id === actor.id ? 'View' : 'Edit'}</button></td>
+              <td className="button-cell">
+                <button type="button" onClick={() => openEdit(user)}>{user.id === actor.id ? 'View' : 'Edit'}</button>
+                {user.id !== actor.id && <button type="button" className="danger-button" onClick={() => deleteUser(user)}>Delete</button>}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -843,7 +1025,13 @@ function CustomersView({ data, reload }: { data: AdminData; reload: (search?: st
   const [entitlements, setEntitlements] = useState<Record<string, unknown> | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [sort, setSort] = useState<SortState<CustomerSortKey> | null>(null);
+  const customers = useMemo(() => sortedRows(data.customers, sort, customerSortAccessors), [data.customers, sort]);
   const defaultTier = data.tiers.find(tier => tier.code === 'free')?.code || data.tiers[0]?.code || '';
+
+  function sortBy(column: CustomerSortKey) {
+    setSort(current => nextSortState(current, column));
+  }
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -902,6 +1090,23 @@ function CustomersView({ data, reload }: { data: AdminData; reload: (search?: st
     }
   }
 
+  async function deleteCustomer(customer: Customer) {
+    if (!window.confirm(`Delete customer ${customer.email}? This will remove related sessions, subscriptions, and export usage. This cannot be undone.`)) return;
+    setError('');
+    setMessage('');
+    try {
+      await api.deleteCustomer(customer.id);
+      if (editing?.id === customer.id) {
+        setEditing(null);
+        setEntitlements(null);
+      }
+      setMessage('Customer deleted.');
+      await reload();
+    } catch (err) {
+      setError(messageFromError(err));
+    }
+  }
+
   return (
     <section className="panel">
       <div className="panel-head">
@@ -917,9 +1122,19 @@ function CustomersView({ data, reload }: { data: AdminData; reload: (search?: st
       {message && <div className="success-box compact">{message}</div>}
       {error && <div className="error-box compact">{error}</div>}
       <table>
-        <thead><tr><th>Name</th><th>Email</th><th>Tier</th><th>Subscription</th><th>Exports</th><th>Status</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            <SortableTh label="Name" column="name" sort={sort} onSort={sortBy} />
+            <SortableTh label="Email" column="email" sort={sort} onSort={sortBy} />
+            <SortableTh label="Tier" column="tier" sort={sort} onSort={sortBy} />
+            <SortableTh label="Subscription" column="subscription" sort={sort} onSort={sortBy} />
+            <SortableTh label="Exports" column="exports" sort={sort} onSort={sortBy} />
+            <SortableTh label="Status" column="status" sort={sort} onSort={sortBy} />
+            <th></th>
+          </tr>
+        </thead>
         <tbody>
-          {data.customers.map(customer => (
+          {customers.map(customer => (
             <tr key={customer.id}>
               <td>{customer.name}</td>
               <td>{customer.email}</td>
@@ -927,7 +1142,10 @@ function CustomersView({ data, reload }: { data: AdminData; reload: (search?: st
               <td><StatusBadge value={customer.subscriptionStatus || 'none'} /></td>
               <td>{customer.exportsToday || 0}</td>
               <td><StatusBadge value={customer.status} /></td>
-              <td><button type="button" onClick={() => openEdit(customer)}>Edit</button></td>
+              <td className="button-cell">
+                <button type="button" onClick={() => openEdit(customer)}>Edit</button>
+                <button type="button" className="danger-button" onClick={() => deleteCustomer(customer)}>Delete</button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -978,11 +1196,17 @@ function SubscriptionsView({ data, reload }: { data: AdminData; reload: () => Pr
   const [error, setError] = useState('');
   const [syncMessage, setSyncMessage] = useState('');
   const [syncError, setSyncError] = useState('');
+  const [sort, setSort] = useState<SortState<SubscriptionSortKey> | null>(null);
+  const subscriptions = useMemo(() => sortedRows(data.subscriptions, sort, subscriptionSortAccessors), [data.subscriptions, sort]);
   const defaultTier = data.tiers.find(tier => tier.code === 'basic')?.code || data.tiers[0]?.code || '';
   const customerOptions = [
     { value: '', label: 'Customer' },
     ...data.customers.map(customer => ({ value: customer.id, label: `${customer.name} - ${customer.email}` })),
   ];
+
+  function sortBy(column: SubscriptionSortKey) {
+    setSort(current => nextSortState(current, column));
+  }
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1064,9 +1288,19 @@ function SubscriptionsView({ data, reload }: { data: AdminData; reload: () => Pr
       {syncMessage && <div className="success-box compact">{syncMessage}</div>}
       {syncError && <div className="error-box compact">{syncError}</div>}
       <table>
-        <thead><tr><th>Customer</th><th>Status</th><th>Tier</th><th>Paddle subscription</th><th>Period end</th><th>Flags</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            <SortableTh label="Customer" column="customer" sort={sort} onSort={sortBy} />
+            <SortableTh label="Status" column="status" sort={sort} onSort={sortBy} />
+            <SortableTh label="Tier" column="tier" sort={sort} onSort={sortBy} />
+            <SortableTh label="Paddle subscription" column="paddleSubscription" sort={sort} onSort={sortBy} />
+            <SortableTh label="Period end" column="periodEnd" sort={sort} onSort={sortBy} />
+            <SortableTh label="Flags" column="flags" sort={sort} onSort={sortBy} />
+            <th></th>
+          </tr>
+        </thead>
         <tbody>
-          {data.subscriptions.map(sub => (
+          {subscriptions.map(sub => (
             <tr key={sub.id}>
               <td>{sub.customerName}<br /><span className="muted">{sub.customerEmail}</span></td>
               <td><StatusBadge value={sub.status} /></td>
@@ -1119,7 +1353,13 @@ function PromotionsView({ data, reload }: { data: AdminData; reload: () => Promi
   const [editing, setEditing] = useState<Promotion | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [sort, setSort] = useState<SortState<PromotionSortKey> | null>(null);
+  const promotions = useMemo(() => sortedRows(data.promotions, sort, promotionSortAccessors), [data.promotions, sort]);
   const anyTierOptions = tierOptions(data.tiers, { value: '', label: 'Any tier' });
+
+  function sortBy(column: PromotionSortKey) {
+    setSort(current => nextSortState(current, column));
+  }
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1179,9 +1419,19 @@ function PromotionsView({ data, reload }: { data: AdminData; reload: () => Promi
       {message && <div className="success-box compact">{message}</div>}
       {error && <div className="error-box compact">{error}</div>}
       <table>
-        <thead><tr><th>Code</th><th>Name</th><th>Tier</th><th>Discount</th><th>Redemptions</th><th>Active</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            <SortableTh label="Code" column="code" sort={sort} onSort={sortBy} />
+            <SortableTh label="Name" column="name" sort={sort} onSort={sortBy} />
+            <SortableTh label="Tier" column="tier" sort={sort} onSort={sortBy} />
+            <SortableTh label="Discount" column="discount" sort={sort} onSort={sortBy} />
+            <SortableTh label="Redemptions" column="redemptions" sort={sort} onSort={sortBy} />
+            <SortableTh label="Active" column="active" sort={sort} onSort={sortBy} />
+            <th></th>
+          </tr>
+        </thead>
         <tbody>
-          {data.promotions.map(promo => (
+          {promotions.map(promo => (
             <tr key={promo.id}>
               <td><strong>{promo.code}</strong></td>
               <td>{promo.name}<br /><span className="muted">{promo.description}</span></td>
@@ -1240,6 +1490,12 @@ function TiersView({ data, reload }: { data: AdminData; reload: () => Promise<vo
   const [editing, setEditing] = useState<PriceTier | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [sort, setSort] = useState<SortState<PriceTierSortKey> | null>(null);
+  const tiers = useMemo(() => sortedRows(data.tiers, sort, priceTierSortAccessors), [data.tiers, sort]);
+
+  function sortBy(column: PriceTierSortKey) {
+    setSort(current => nextSortState(current, column));
+  }
 
   async function save(event: FormEvent<HTMLFormElement>, code?: string) {
     event.preventDefault();
@@ -1276,6 +1532,20 @@ function TiersView({ data, reload }: { data: AdminData; reload: () => Promise<vo
     }
   }
 
+  async function deleteTier(tier: PriceTier) {
+    if (!window.confirm(`Delete tier ${tier.code}? This cannot be undone.`)) return;
+    setError('');
+    setMessage('');
+    try {
+      await api.deletePriceTier(tier.code);
+      if (editing?.code === tier.code) setEditing(null);
+      setMessage('Tier deleted.');
+      await reload();
+    } catch (err) {
+      setError(messageFromError(err));
+    }
+  }
+
   return (
     <section className="panel">
       <div className="panel-head">
@@ -1285,9 +1555,20 @@ function TiersView({ data, reload }: { data: AdminData; reload: () => Promise<vo
       {message && <div className="success-box compact">{message}</div>}
       {error && <div className="error-box compact">{error}</div>}
       <table>
-        <thead><tr><th>Tier</th><th>Price</th><th>Paddle Price</th><th>Exports</th><th>Badge</th><th>Flags</th><th>Active</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            <SortableTh label="Tier" column="tier" sort={sort} onSort={sortBy} />
+            <SortableTh label="Price" column="price" sort={sort} onSort={sortBy} />
+            <SortableTh label="Paddle Price" column="paddlePrice" sort={sort} onSort={sortBy} />
+            <SortableTh label="Exports" column="exports" sort={sort} onSort={sortBy} />
+            <SortableTh label="Badge" column="badge" sort={sort} onSort={sortBy} />
+            <SortableTh label="Flags" column="flags" sort={sort} onSort={sortBy} />
+            <SortableTh label="Active" column="active" sort={sort} onSort={sortBy} />
+            <th></th>
+          </tr>
+        </thead>
         <tbody>
-          {data.tiers.map(tier => (
+          {tiers.map(tier => (
             <tr key={tier.code}>
               <td><strong>{tier.name}</strong><br /><span className="muted">{tier.code}</span></td>
               <td>{cents(tier.monthlyPriceCents)}</td>
@@ -1296,7 +1577,10 @@ function TiersView({ data, reload }: { data: AdminData; reload: () => Promise<vo
               <td>{tier.pricingBadge || '—'}</td>
               <td>{tier.watermarkEnabled ? 'watermark ' : ''}{tier.brandingEnabled ? 'branding ' : ''}{tier.styleEditorEnabled ? 'style ' : ''}{tier.benefitEditorEnabled ? 'benefit' : ''}</td>
               <td><StatusBadge value={tier.active} /></td>
-              <td><button type="button" onClick={() => setEditing(tier)}>Edit</button></td>
+              <td className="button-cell">
+                <button type="button" onClick={() => setEditing(tier)}>Edit</button>
+                <button type="button" className="danger-button" onClick={() => deleteTier(tier)}>Delete</button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -1518,6 +1802,21 @@ function EmailsView({ data, reload }: { data: AdminData; reload: () => Promise<v
     }
   }
 
+  async function deleteTemplate(template: EmailTemplate) {
+    if (!window.confirm(`Delete email template ${template.key}? This cannot be undone.`)) return;
+    setError('');
+    setMessage('');
+    try {
+      await api.deleteEmailTemplate(template.key);
+      if (editing?.key === template.key) setEditing(null);
+      if (testing?.key === template.key) setTesting(null);
+      setMessage('Email template deleted.');
+      await reload();
+    } catch (err) {
+      setError(messageFromError(err));
+    }
+  }
+
   async function sendTest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!testing) return;
@@ -1578,6 +1877,11 @@ function EmailsView({ data, reload }: { data: AdminData; reload: () => Promise<v
                 <td className="button-cell">
                   <button type="button" onClick={() => openEdit(template)}>Edit</button>
                   <button type="button" className="ghost-button" onClick={() => setTesting(template)}>Test</button>
+                  {template.system ? (
+                    <button type="button" className="ghost-button" disabled title="System template cannot be deleted">Delete</button>
+                  ) : (
+                    <button type="button" className="danger-button" onClick={() => deleteTemplate(template)}>Delete</button>
+                  )}
                 </td>
               </tr>
             ))}
