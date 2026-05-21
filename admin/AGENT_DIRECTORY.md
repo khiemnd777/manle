@@ -5,8 +5,10 @@ before broad `rg` when the task touches `/admin`, operational UI, admin auth,
 customer management, billing state, promotions, price tiers, entitlements, or
 audit logs.
 
-The admin app is intentionally compact: most UI is in `src/App.tsx`; all typed
-API calls and response types are in `src/api/client.ts`.
+The admin shell is intentionally compact: boot/auth/sidebar/metrics live in
+`src/App.tsx`, lazy-loaded operational views live in `src/views/**`, shared UI
+controls and helpers live in `src/adminShared.tsx`, and typed API calls plus
+response types live in `src/api/client.ts`.
 
 ## Fast Entry Points
 
@@ -14,15 +16,16 @@ API calls and response types are in `src/api/client.ts`.
 | --- | --- | --- | --- |
 | admin login, initial setup, bootstrap | `src/App.tsx`, `src/api/client.ts` | `../api/src/index.ts`, `../api/src/services/auth.ts` | `InitialSetup`, `Login`, `bootstrapStatus`, `bootstrap`, `login`, `/api/admin/bootstrap`, `/api/admin/auth/login` |
 | session refresh, unauthorized, credentials/cookies | `src/api/client.ts` | `../api/src/services/auth.ts`, `../api/src/http/response.ts` | `credentials: 'include'`, `refreshAdminAuth`, `canRefresh`, `ApiError`, `401`, `/api/admin/auth/refresh` |
-| system users, admin/normal user roles, reset password | `src/App.tsx` `SystemUsersView` | `src/api/client.ts`, `../api/src/services/admin.ts` | `SystemUsersView`, `api.systemUsers`, `createSystemUser`, `updateSystemUser`, `/api/admin/system-users` |
-| customer table, search, add customer, edit customer | `src/App.tsx` `CustomersView` | `src/api/client.ts`, `../api/src/services/admin.ts` | `CustomersView`, `api.customers`, `createCustomer`, `updateCustomer`, `customerEntitlements`, `Search name or email` |
-| customer effective entitlements | `src/App.tsx` `CustomersView` | `src/api/client.ts`, `../api/src/services/admin.ts` | `entitlement-list`, `api.customerEntitlements`, `/customers/:id/entitlements`, `effectiveEntitlementsForUser` |
-| subscriptions, manual override, cancel at period end | `src/App.tsx` `SubscriptionsView` | `src/api/client.ts`, `../api/src/services/admin.ts` | `SubscriptionsView`, `createSubscription`, `updateSubscription`, `manualOverride`, `cancelAtPeriodEnd` |
-| Paddle sync by subscription/customer ID | `src/App.tsx` `SubscriptionsView` | `src/api/client.ts`, `../api/src/services/paddle.ts` | `syncPaddle`, `syncSubscriptionId`, `syncCustomerId`, `/api/admin/paddle/sync` |
-| promotions, promo code, Paddle discount ID | `src/App.tsx` `PromotionsView` | `src/api/client.ts`, `../api/src/services/admin.ts` | `PromotionsView`, `createPromotion`, `updatePromotion`, `PROMO10`, `paddleDiscountId` |
-| price tiers, export limits, watermark, branding, style flag, Paddle price ID | `src/App.tsx` `TiersView` | `src/api/client.ts`, `../api/src/services/admin.ts`, `../api/db/migrations/001_admin_billing.sql` | `TiersView`, `savePriceTier`, `updatePriceTier`, `exportLimitPerDay`, `watermarkEnabled`, `paddlePriceId` |
-| entitlements matrix | `src/App.tsx` `EntitlementsView` | `src/api/client.ts`, `../api/src/services/admin.ts` | `EntitlementsView`, `grantMap`, `updateTierEntitlement`, `EntitlementDefinition`, `EntitlementGrant` |
-| audit log | `src/App.tsx` `AuditView` | `src/api/client.ts`, `../api/src/services/admin.ts` | `AuditView`, `api.audit`, `auditLogs`, `actorEmail`, `metadata` |
+| system users, admin/normal user roles, reset password | `src/views/SystemUsersView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `SystemUsersView`, `api.systemUsers`, `createSystemUser`, `updateSystemUser`, `/api/admin/system-users` |
+| customer table, search, add customer, edit customer | `src/views/CustomersView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `CustomersView`, `api.customers`, `createCustomer`, `updateCustomer`, `customerEntitlements`, `Search name or email` |
+| customer effective entitlements | `src/views/CustomersView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `entitlement-list`, `api.customerEntitlements`, `/customers/:id/entitlements`, `effectiveEntitlementsForUser` |
+| subscriptions, manual override, cancel at period end | `src/views/SubscriptionsView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `SubscriptionsView`, `createSubscription`, `updateSubscription`, `manualOverride`, `cancelAtPeriodEnd` |
+| Paddle sync by subscription/customer ID | `src/views/SubscriptionsView.tsx` | `src/api/client.ts`, `../api/src/services/paddle.ts` | `syncPaddle`, `syncSubscriptionId`, `syncCustomerId`, `/api/admin/paddle/sync` |
+| promotions, promo code, Paddle discount ID | `src/views/PromotionsView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `PromotionsView`, `createPromotion`, `updatePromotion`, `PROMO10`, `paddleDiscountId` |
+| price tiers, export limits, watermark, branding, style flag, Paddle price ID | `src/views/TiersView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts`, `../api/db/migrations/001_admin_billing.sql` | `TiersView`, `savePriceTier`, `updatePriceTier`, `exportLimitPerDay`, `watermarkEnabled`, `paddlePriceId` |
+| entitlements matrix | `src/views/EntitlementsView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `EntitlementsView`, `grantMap`, `updateTierEntitlement`, `EntitlementDefinition`, `EntitlementGrant` |
+| email settings and templates | `src/views/EmailsView.tsx` | `src/RichTextEditor.tsx`, `src/api/client.ts`, `../api/src/services/admin.ts` | `EmailsView`, `emailSettings`, `emailTemplates`, `updateEmailSettings`, `createEmailTemplate`, `RichTextEditor` |
+| audit log | `src/views/AuditView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `AuditView`, `api.audit`, `auditLogs`, `actorEmail`, `metadata` |
 | CSS/layout/status badge/table styles | `src/styles.css`, `src/App.tsx` | n/a | `admin-layout`, `sidebar`, `topbar`, `panel`, `inline-form`, `mini-form`, `status-good`, `status-bad` |
 
 ## App Structure
@@ -30,24 +33,31 @@ API calls and response types are in `src/api/client.ts`.
 Files:
 
 - `src/main.tsx`: React root bootstrap.
-- `src/App.tsx`: all screens, views, forms, tables, and local UI state.
+- `src/App.tsx`: boot flow, auth screens, sidebar/topbar shell, metrics, admin data loading, and lazy view routing.
+- `src/adminTypes.ts`: shared admin view/data types.
+- `src/adminShared.tsx`: shared UI controls, toast context, form helpers, formatting helpers, and sorting helpers.
+- `src/viewConfig.ts`: sidebar view metadata, navigation order, and empty admin data.
+- `src/views/**`: lazy-loaded operational views, forms, tables, and local view state.
+- `src/views/options.ts`: shared select option lists for view forms.
 - `src/api/client.ts`: API base, refresh logic, `ApiError`, data types, `api` methods.
 - `src/styles.css`: admin layout, forms, tables, badges, panels.
 
-View union in `App.tsx`:
+View union in `src/adminTypes.ts`; sidebar metadata in `src/viewConfig.ts`:
 
-- `customers`
 - `users`
+- `customers`
 - `subscriptions`
 - `promotions`
 - `tiers`
 - `entitlements`
+- `emails`
 - `audit`
+- `profile`
 
 Shared state in `AdminShell`:
 
 - `view`: active sidebar section.
-- `data`: `AdminData` containing overview, customers, subscriptions, promotions, tiers, entitlement definitions/grants, audit logs.
+- `data`: `AdminData` containing overview, users, customers, subscriptions, promotions, tiers, entitlement definitions/grants, email settings/templates, and audit logs.
 - `loading`, `error`.
 
 `loadAll(customerSearch = '', systemUserSearch = '')` fetches in parallel:
@@ -59,6 +69,8 @@ Shared state in `AdminShell`:
 - `api.promotions()`
 - `api.priceTiers()`
 - `api.entitlements()`
+- `api.emailSettings()`
+- `api.emailTemplates()`
 - `api.audit()`
 
 If a mutation changes table data, call the provided `reload()` so UI does not
@@ -240,13 +252,13 @@ Search anchors:
 Find a view/component:
 
 ```bash
-rg -n "CustomersView|SubscriptionsView|PromotionsView|TiersView|EntitlementsView|AuditView|InitialSetup|Login|AdminShell" admin/src/App.tsx
+rg -n "CustomersView|SubscriptionsView|PromotionsView|TiersView|EntitlementsView|EmailsView|AuditView|InitialSetup|Login|AdminShell" admin/src
 ```
 
 Find a form field:
 
 ```bash
-rg -n "field\\(form, 'name'\\)|name=\"fieldName\"|defaultValue|defaultChecked" admin/src/App.tsx
+rg -n "field\\(form, 'name'\\)|name=\"fieldName\"|defaultValue|defaultChecked" admin/src
 ```
 
 Find an admin endpoint:

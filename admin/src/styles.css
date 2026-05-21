@@ -76,15 +76,14 @@ button:disabled:hover {
   box-shadow: none;
 }
 
-.icon {
+.icon,
+.icon.MuiSvgIcon-root {
   width: 16px;
   height: 16px;
   flex: 0 0 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2;
+  display: inline-block;
+  font-size: 16px;
+  fill: currentColor;
 }
 .button-with-icon > span:last-child {
   min-width: 0;
@@ -386,9 +385,11 @@ p, .muted { color: var(--muted); }
   color: var(--teal);
   box-shadow: var(--shadow-sm);
 }
-.topbar-icon .icon {
+.topbar-icon .icon,
+.topbar-icon .icon.MuiSvgIcon-root {
   width: 19px;
   height: 19px;
+  font-size: 19px;
 }
 
 .metric-grid {
@@ -611,14 +612,13 @@ tbody tr:last-child td {
   display: inline-flex;
   flex: 0 0 14px;
 }
-.sort-icon {
+.sort-icon,
+.sort-icon.MuiSvgIcon-root {
   width: 14px;
   height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2.4;
+  flex: 0 0 14px;
+  font-size: 14px;
+  fill: currentColor;
 }
 td button { font-size: 12px; }
 .button-cell {
