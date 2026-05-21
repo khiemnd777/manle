@@ -1,4 +1,4 @@
-import { FormEvent, Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { FormEvent, Suspense, createContext, lazy, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
   Actor,
   ApiError,
@@ -16,8 +16,11 @@ import {
   api,
 } from './api/client';
 import { htmlToText } from './emailText';
+import { Icon, IconName } from './icons';
 
 type View = 'users' | 'customers' | 'subscriptions' | 'promotions' | 'tiers' | 'entitlements' | 'emails' | 'audit' | 'profile';
+type LoginMode = 'login' | 'forgot' | 'reset';
+type AuthMessageKind = 'success' | 'info';
 
 type AdminData = {
   overview: { systemUsers: number; customers: number; activeSubscriptions: number; activePromotions: number; activeTiers: number };
@@ -47,6 +50,56 @@ type SortState<Key extends string> = {
 
 const RichTextEditor = lazy(() => import('./RichTextEditor'));
 
+const viewMeta: Record<View, { label: string; icon: IconName; description: string }> = {
+  users: {
+    label: 'System Users',
+    icon: 'users',
+    description: 'Manage internal MANLE admin and normal user accounts.',
+  },
+  customers: {
+    label: 'Customers',
+    icon: 'customers',
+    description: 'Manage customer access, tiers, subscription state, and support notes.',
+  },
+  subscriptions: {
+    label: 'Subscriptions',
+    icon: 'subscriptions',
+    description: 'Inspect Paddle billing state, manual overrides, and subscription sync.',
+  },
+  promotions: {
+    label: 'Promotions',
+    icon: 'promotions',
+    description: 'Manage promo codes, Paddle discounts, redemptions, and active offers.',
+  },
+  tiers: {
+    label: 'Price Tiers',
+    icon: 'tiers',
+    description: 'Configure pricing, export limits, product controls, and Paddle price IDs.',
+  },
+  entitlements: {
+    label: 'Entitlements',
+    icon: 'entitlements',
+    description: 'Control feature access resolved server-side from customer tier state.',
+  },
+  emails: {
+    label: 'Email Templates',
+    icon: 'emails',
+    description: 'Manage Resend delivery settings, reusable templates, and test sends.',
+  },
+  audit: {
+    label: 'Audit Log',
+    icon: 'audit',
+    description: 'Review recent admin mutations and system-level activity.',
+  },
+  profile: {
+    label: 'Profile',
+    icon: 'profile',
+    description: 'Manage your account identity and password.',
+  },
+};
+
+const adminNavItems: View[] = ['users', 'customers', 'subscriptions', 'promotions', 'tiers', 'entitlements', 'emails', 'audit'];
+
 const emptyData: AdminData = {
   overview: { systemUsers: 0, customers: 0, activeSubscriptions: 0, activePromotions: 0, activeTiers: 0 },
   systemUsers: [],
@@ -70,6 +123,16 @@ function messageFromError(error: unknown) {
 function field(form: HTMLFormElement, name: string) {
   const value = new FormData(form).get(name);
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function resetTokenFromUrl() {
+  return new URLSearchParams(window.location.search).get('reset_token') || '';
+}
+
+function clearResetTokenFromUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('reset_token');
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}` || '/');
 }
 
 function numberField(form: HTMLFormElement, name: string) {
@@ -287,9 +350,91 @@ const discountTypeOptions: SelectOption[] = [
   { value: 'custom', label: 'custom' },
 ];
 
+type ToastKind = 'success' | 'error' | 'info';
+type Toast = {
+  id: number;
+  kind: ToastKind;
+  title: string;
+  message?: string;
+};
+type Notify = (kind: ToastKind, title: string, message?: string) => void;
+
+const ToastContext = createContext<Notify>(() => undefined);
+const toastIcons: Record<ToastKind, IconName> = {
+  success: 'check',
+  error: 'alert',
+  info: 'info',
+};
+
 function tierOptions(tiers: PriceTier[], first?: SelectOption) {
   const options = tiers.map(tier => ({ value: tier.code, label: tier.name }));
   return first ? [first, ...options] : options;
+}
+
+function useNotify() {
+  return useContext(ToastContext);
+}
+
+function useFeedbackState(kind: ToastKind, title = 'Action failed') {
+  const notify = useNotify();
+  const [value, setValueState] = useState('');
+  const setValue = useCallback((nextValue: string) => {
+    setValueState(nextValue);
+    if (!nextValue) return;
+    if (kind === 'error') {
+      notify(kind, title, nextValue);
+      return;
+    }
+    notify(kind, nextValue);
+  }, [kind, notify, title]);
+
+  return [value, setValue] as const;
+}
+
+function ActionButton({
+  icon,
+  className = '',
+  children,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: IconName }) {
+  const classes = ['button-with-icon', className].filter(Boolean).join(' ');
+  return (
+    <button {...props} className={classes}>
+      {icon && <Icon name={icon} />}
+      <span>{children}</span>
+    </button>
+  );
+}
+
+function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
+  if (!toasts.length) return null;
+  return (
+    <div className="toast-stack" role="status" aria-live="polite">
+      {toasts.map(toast => (
+        <ToastItem key={toast.id} toast={toast} onDismiss={onDismiss} />
+      ))}
+    </div>
+  );
+}
+
+function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: number) => void }) {
+  useEffect(() => {
+    const timer = window.setTimeout(() => onDismiss(toast.id), toast.kind === 'error' ? 7000 : 4600);
+    return () => window.clearTimeout(timer);
+  }, [onDismiss, toast.id, toast.kind]);
+
+  return (
+    <div className={`toast toast-${toast.kind}`}>
+      <span className="toast-icon"><Icon name={toastIcons[toast.kind]} /></span>
+      <span className="toast-copy">
+        <strong>{toast.title}</strong>
+        {toast.message && <span>{toast.message}</span>}
+      </span>
+      <button type="button" className="toast-close" onClick={() => onDismiss(toast.id)} aria-label="Dismiss notification">
+        <Icon name="x" />
+      </button>
+    </div>
+  );
 }
 
 function Dialog({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
@@ -307,7 +452,7 @@ function Dialog({ title, children, onClose }: { title: string; children: React.R
       <section className="dialog-panel" role="dialog" aria-modal="true" aria-label={title}>
         <header className="dialog-head">
           <h2>{title}</h2>
-          <button className="ghost-button" type="button" onClick={onClose}>Close</button>
+          <ActionButton className="ghost-button" type="button" icon="x" onClick={onClose}>Close</ActionButton>
         </header>
         {children}
       </section>
@@ -541,7 +686,7 @@ function InitialSetup({ onDone }: { onDone: () => void }) {
       {done ? (
         <div className="success-box">
           Admin account created. Sign in with the email and password you just set.
-          <button type="button" onClick={onDone}>Continue to login</button>
+          <ActionButton type="button" icon="check" onClick={onDone}>Continue to login</ActionButton>
         </div>
       ) : (
         <form className="auth-form" onSubmit={submit}>
@@ -549,7 +694,7 @@ function InitialSetup({ onDone }: { onDone: () => void }) {
           <label>Email<input name="email" type="email" placeholder="admin@manle.info" required /></label>
           <label>Password<input name="password" type="password" minLength={10} required /></label>
           {error && <div className="error-box">{error}</div>}
-          <button type="submit">Create initial admin</button>
+          <ActionButton type="submit" icon="plus">Create initial admin</ActionButton>
         </form>
       )}
     </ScreenFrame>
@@ -557,28 +702,135 @@ function InitialSetup({ onDone }: { onDone: () => void }) {
 }
 
 function Login({ onLogin }: { onLogin: (actor: Actor) => void }) {
+  const initialResetToken = resetTokenFromUrl();
+  const [mode, setMode] = useState<LoginMode>(initialResetToken ? 'reset' : 'login');
+  const [resetToken, setResetToken] = useState(initialResetToken);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [messageKind, setMessageKind] = useState<AuthMessageKind>('info');
+  const [submitting, setSubmitting] = useState(false);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  function showMode(nextMode: LoginMode) {
+    setMode(nextMode);
+    setError('');
+    setMessage('');
+  }
+
+  function leaveResetMode() {
+    if (resetToken) {
+      clearResetTokenFromUrl();
+      setResetToken('');
+    }
+    showMode('login');
+  }
+
+  function setInfo(value: string, kind: AuthMessageKind = 'info') {
+    setMessage(value);
+    setMessageKind(kind);
+  }
+
+  async function submitLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
+    setMessage('');
+    setSubmitting(true);
     const form = event.currentTarget;
     try {
       const result = await api.login({ email: field(form, 'email'), password: field(form, 'password') });
       onLogin(result.actor);
     } catch (err) {
       setError(messageFromError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function submitForgot(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setInfo('Sending reset link...');
+    setSubmitting(true);
+    const form = event.currentTarget;
+    try {
+      const email = field(form, 'email');
+      if (!email.includes('@')) throw new Error('Valid email is required.');
+      await api.forgotPassword({ email });
+      form.reset();
+      setInfo('If an internal account exists for this email, a reset link has been sent.', 'success');
+    } catch (err) {
+      setMessage('');
+      setError(messageFromError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function submitReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    setSubmitting(true);
+    const form = event.currentTarget;
+    try {
+      const token = field(form, 'token') || resetToken;
+      const password = field(form, 'password');
+      const confirmPassword = field(form, 'confirmPassword');
+      if (!token) throw new Error('Password reset token is missing.');
+      if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+      if (password !== confirmPassword) throw new Error('Password confirmation does not match.');
+      await api.resetPassword({ token, password });
+      form.reset();
+      clearResetTokenFromUrl();
+      setResetToken('');
+      setMode('login');
+      setInfo('Password reset. Sign in with your new password.', 'success');
+    } catch (err) {
+      setError(messageFromError(err));
+    } finally {
+      setSubmitting(false);
     }
   }
 
   return (
-    <ScreenFrame title="MANLE Admin Login">
-      <form className="auth-form" onSubmit={submit}>
-        <label>Email<input name="email" type="email" autoComplete="email" required /></label>
-        <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
-        {error && <div className="error-box">{error}</div>}
-        <button type="submit">Sign in</button>
-      </form>
+    <ScreenFrame title={mode === 'reset' ? 'Set New Password' : mode === 'forgot' ? 'Reset Admin Password' : 'MANLE Admin Login'}>
+      {mode === 'login' && (
+        <form className="auth-form" onSubmit={submitLogin}>
+          <label>Email<input name="email" type="email" autoComplete="email" required /></label>
+          <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
+          {error && <div className="error-box">{error}</div>}
+          {message && <div className={`success-box auth-message-${messageKind}`}>{message}</div>}
+          <ActionButton type="submit" icon="profile" disabled={submitting}>{submitting ? 'Signing in...' : 'Sign in'}</ActionButton>
+          <div className="auth-secondary-row">
+            <button type="button" className="text-button" onClick={() => showMode('forgot')}>Forgot password?</button>
+          </div>
+        </form>
+      )}
+
+      {mode === 'forgot' && (
+        <form className="auth-form" onSubmit={submitForgot}>
+          <label>Email<input name="email" type="email" autoComplete="email" required /></label>
+          {error && <div className="error-box">{error}</div>}
+          {message && <div className={`success-box auth-message-${messageKind}`}>{message}</div>}
+          <ActionButton type="submit" icon="mail" disabled={submitting}>{submitting ? 'Sending...' : 'Send reset link'}</ActionButton>
+          <div className="auth-secondary-row">
+            <button type="button" className="text-button" onClick={() => showMode('login')}>Back to login</button>
+          </div>
+        </form>
+      )}
+
+      {mode === 'reset' && (
+        <form className="auth-form" onSubmit={submitReset}>
+          <input type="hidden" name="token" value={resetToken} readOnly />
+          <label>New password<input name="password" type="password" autoComplete="new-password" minLength={8} required /></label>
+          <label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" minLength={8} required /></label>
+          {error && <div className="error-box">{error}</div>}
+          {message && <div className={`success-box auth-message-${messageKind}`}>{message}</div>}
+          <ActionButton type="submit" icon="save" disabled={submitting}>{submitting ? 'Saving...' : 'Reset password'}</ActionButton>
+          <div className="auth-secondary-row">
+            <button type="button" className="text-button" onClick={leaveResetMode}>Back to login</button>
+          </div>
+        </form>
+      )}
     </ScreenFrame>
   );
 }
@@ -597,14 +849,15 @@ function AdminShell({
   const [data, setData] = useState<AdminData>(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const viewTitle = view === 'profile' ? 'Profile' : view === 'users' ? 'System Users' : view === 'emails' ? 'Email Templates' : view;
-  const viewDescription = !isAdmin || view === 'profile'
-    ? 'Manage your account identity and password.'
-    : view === 'users'
-      ? 'Manage internal MANLE admin and normal user accounts.'
-      : view === 'emails'
-        ? 'Manage Resend delivery settings, reusable templates, and test sends.'
-        : 'Manage MANLE customers, billing state, price tiers, promotions, and feature access.';
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const activeView = viewMeta[view];
+  const notify = useCallback<Notify>((kind, title, message) => {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts(current => [...current.slice(-3), { id, kind, title, message }]);
+  }, []);
+  const dismissToast = useCallback((id: number) => {
+    setToasts(current => current.filter(toast => toast.id !== id));
+  }, []);
 
   async function loadAll(customerSearch = '', systemUserSearch = '') {
     setLoading(true);
@@ -641,7 +894,9 @@ function AdminShell({
         auditLogs: audit.logs,
       });
     } catch (err) {
-      setError(messageFromError(err));
+      const message = messageFromError(err);
+      setError(message);
+      notify('error', 'Unable to load admin data', message);
     } finally {
       setLoading(false);
     }
@@ -661,64 +916,93 @@ function AdminShell({
   }
 
   return (
-    <div className="admin-layout">
-      <aside className="sidebar">
-        <div className="side-brand"><span className="brand-mark">M</span><strong>MANLE Admin</strong></div>
-        {isAdmin && (['users', 'customers', 'subscriptions', 'promotions', 'tiers', 'entitlements', 'emails', 'audit'] as View[]).map(item => (
-          <button key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>
-            {item === 'users' ? 'users' : item}
-          </button>
-        ))}
-        <div className="side-footer">
-          <button
-            type="button"
-            className={`profile-link${view === 'profile' ? ' active' : ''}`}
-            onClick={() => setView('profile')}
-            aria-current={view === 'profile' ? 'page' : undefined}
-          >
-            {actor.email}
-          </button>
-          <button type="button" onClick={logout}>Logout</button>
-        </div>
-      </aside>
-      <main className="admin-main">
-        <header className="topbar">
-          <div>
-            <h1>{viewTitle}</h1>
-            <p>{viewDescription}</p>
+    <ToastContext.Provider value={notify}>
+      <div className="admin-layout">
+        <aside className="sidebar">
+          <div className="side-brand">
+            <span className="brand-mark">M</span>
+            <div>
+              <strong>MANLE Admin</strong>
+              <span>Operations Console</span>
+            </div>
           </div>
-          {isAdmin && <button type="button" onClick={() => loadAll()}>Refresh</button>}
-        </header>
-        {isAdmin && (
-          <section className="metric-grid">
-            <Metric label="System users" value={data.overview.systemUsers} />
-            <Metric label="Customers" value={data.overview.customers} />
-            <Metric label="Active subscriptions" value={data.overview.activeSubscriptions} />
-            <Metric label="Active promotions" value={data.overview.activePromotions} />
-            <Metric label="Active tiers" value={data.overview.activeTiers} />
-          </section>
-        )}
-        {error && <div className="error-box">{error}</div>}
-        {loading ? <div className="loading">Loading data...</div> : (
-          <>
-            {view === 'users' && isAdmin && <SystemUsersView actor={actor} data={data} reload={loadAll} />}
-            {view === 'customers' && <CustomersView data={data} reload={loadAll} />}
-            {view === 'subscriptions' && <SubscriptionsView data={data} reload={loadAll} />}
-            {view === 'promotions' && <PromotionsView data={data} reload={loadAll} />}
-            {view === 'tiers' && <TiersView data={data} reload={loadAll} />}
-            {view === 'entitlements' && <EntitlementsView data={data} reload={loadAll} />}
-            {view === 'emails' && <EmailsView data={data} reload={loadAll} />}
-            {view === 'audit' && <AuditView logs={data.auditLogs} />}
-            {view === 'profile' && <ProfileView actor={actor} onActorChange={onActorChange} />}
-          </>
-        )}
-      </main>
-    </div>
+          {isAdmin && (
+            <nav className="side-nav" aria-label="Admin sections">
+              {adminNavItems.map(item => (
+                <button
+                  key={item}
+                  className={`side-nav-button${view === item ? ' active' : ''}`}
+                  onClick={() => setView(item)}
+                  aria-current={view === item ? 'page' : undefined}
+                >
+                  <Icon name={viewMeta[item].icon} />
+                  <span>{viewMeta[item].label}</span>
+                </button>
+              ))}
+            </nav>
+          )}
+          <div className="side-footer">
+            <button
+              type="button"
+              className={`profile-link${view === 'profile' ? ' active' : ''}`}
+              onClick={() => setView('profile')}
+              aria-current={view === 'profile' ? 'page' : undefined}
+            >
+              <Icon name="profile" />
+              <span>{actor.email}</span>
+            </button>
+            <ActionButton type="button" icon="logout" onClick={logout}>Logout</ActionButton>
+          </div>
+        </aside>
+        <main className="admin-main">
+          <header className="topbar">
+            <div className="topbar-title">
+              <span className="topbar-icon"><Icon name={activeView.icon} /></span>
+              <div>
+                <h1>{activeView.label}</h1>
+                <p>{activeView.description}</p>
+              </div>
+            </div>
+            {isAdmin && <ActionButton type="button" icon="refresh" onClick={() => loadAll()} disabled={loading}>Refresh</ActionButton>}
+          </header>
+          {isAdmin && (
+            <section className="metric-grid" aria-label="Admin overview">
+              <Metric icon="users" label="System users" value={data.overview.systemUsers} />
+              <Metric icon="customers" label="Customers" value={data.overview.customers} />
+              <Metric icon="subscriptions" label="Active subscriptions" value={data.overview.activeSubscriptions} />
+              <Metric icon="promotions" label="Active promotions" value={data.overview.activePromotions} />
+              <Metric icon="tiers" label="Active tiers" value={data.overview.activeTiers} />
+            </section>
+          )}
+          {error && <div className="error-box">{error}</div>}
+          {loading ? <div className="loading">Loading data...</div> : (
+            <>
+              {view === 'users' && isAdmin && <SystemUsersView actor={actor} data={data} reload={loadAll} />}
+              {view === 'customers' && <CustomersView data={data} reload={loadAll} />}
+              {view === 'subscriptions' && <SubscriptionsView data={data} reload={loadAll} />}
+              {view === 'promotions' && <PromotionsView data={data} reload={loadAll} />}
+              {view === 'tiers' && <TiersView data={data} reload={loadAll} />}
+              {view === 'entitlements' && <EntitlementsView data={data} reload={loadAll} />}
+              {view === 'emails' && <EmailsView data={data} reload={loadAll} />}
+              {view === 'audit' && <AuditView logs={data.auditLogs} />}
+              {view === 'profile' && <ProfileView actor={actor} onActorChange={onActorChange} />}
+            </>
+          )}
+        </main>
+      </div>
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+    </ToastContext.Provider>
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
-  return <div className="metric"><span>{label}</span><strong>{value}</strong></div>;
+function Metric({ icon, label, value }: { icon: IconName; label: string; value: number }) {
+  return (
+    <div className="metric">
+      <span className="metric-icon"><Icon name={icon} /></span>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
 }
 
 function SystemUsersView({
@@ -733,8 +1017,8 @@ function SystemUsersView({
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<SystemUser | null>(null);
   const [search, setSearch] = useState('');
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [message, setMessage] = useFeedbackState('success');
+  const [error, setError] = useFeedbackState('error');
   const [sort, setSort] = useState<SortState<SystemUserSortKey> | null>(null);
   const users = useMemo(() => sortedRows(data.systemUsers, sort, systemUserSortAccessors), [data.systemUsers, sort]);
 
@@ -839,12 +1123,11 @@ function SystemUsersView({
         <div className="toolbar-row">
           <form className="inline-form" onSubmit={runSearch}>
             <input name="search" placeholder="Search name or email" defaultValue={search} />
-            <button type="submit">Search</button>
+            <ActionButton type="submit" icon="search">Search</ActionButton>
           </form>
-          <button type="button" onClick={() => setCreateOpen(true)}>Create user</button>
+          <ActionButton type="button" icon="plus" onClick={() => setCreateOpen(true)}>Create user</ActionButton>
         </div>
       </div>
-      {message && <div className="success-box compact">{message}</div>}
       {error && <div className="error-box compact">{error}</div>}
       <table>
         <thead>
@@ -866,8 +1149,8 @@ function SystemUsersView({
               <td><StatusBadge value={user.status} /></td>
               <td>{dateOnly(user.createdAt)}</td>
               <td className="button-cell">
-                <button type="button" onClick={() => openEdit(user)}>{user.id === actor.id ? 'View' : 'Edit'}</button>
-                {user.id !== actor.id && <button type="button" className="danger-button" onClick={() => deleteUser(user)}>Delete</button>}
+                <ActionButton type="button" icon={user.id === actor.id ? 'eye' : 'edit'} onClick={() => openEdit(user)}>{user.id === actor.id ? 'View' : 'Edit'}</ActionButton>
+                {user.id !== actor.id && <ActionButton type="button" icon="trash" className="danger-button" onClick={() => deleteUser(user)}>Delete</ActionButton>}
               </td>
             </tr>
           ))}
@@ -883,8 +1166,8 @@ function SystemUsersView({
             <label>Password<input name="password" type="password" autoComplete="new-password" minLength={10} required /></label>
             <label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" minLength={10} required /></label>
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => setCreateOpen(false)}>Cancel</button>
-              <button type="submit">Create user</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => setCreateOpen(false)}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="plus">Create user</ActionButton>
             </div>
           </form>
         </Dialog>
@@ -905,8 +1188,8 @@ function SystemUsersView({
             <label>New password<input name="password" type="password" autoComplete="new-password" minLength={10} /></label>
             <label>Confirm new password<input name="confirmPassword" type="password" autoComplete="new-password" minLength={10} /></label>
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => setEditing(null)}>Cancel</button>
-              <button type="submit">Save user</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => setEditing(null)}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="save">Save user</ActionButton>
             </div>
           </form>
         </Dialog>
@@ -916,8 +1199,8 @@ function SystemUsersView({
 }
 
 function ProfileView({ actor, onActorChange }: { actor: Actor; onActorChange: (actor: Actor) => void }) {
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [message, setMessage] = useFeedbackState('success');
+  const [error, setError] = useFeedbackState('error');
 
   async function saveAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -986,7 +1269,6 @@ function ProfileView({ actor, onActorChange }: { actor: Actor; onActorChange: (a
         </dl>
       </div>
       <div className="profile-forms">
-        {message && <div className="success-box compact">{message}</div>}
         {error && <div className="error-box compact">{error}</div>}
         <section className="panel">
           <div className="panel-head">
@@ -997,7 +1279,7 @@ function ProfileView({ actor, onActorChange }: { actor: Actor; onActorChange: (a
             <label>Email<input name="email" type="email" defaultValue={actor.email} autoComplete="email" required /></label>
             <label>Current password<input name="currentPassword" type="password" autoComplete="current-password" /></label>
             <div className="form-actions">
-              <button type="submit">Save profile</button>
+              <ActionButton type="submit" icon="save">Save profile</ActionButton>
             </div>
           </form>
         </section>
@@ -1010,7 +1292,7 @@ function ProfileView({ actor, onActorChange }: { actor: Actor; onActorChange: (a
             <label>New password<input name="newPassword" type="password" autoComplete="new-password" minLength={8} required /></label>
             <label>Confirm new password<input name="confirmPassword" type="password" autoComplete="new-password" minLength={8} required /></label>
             <div className="form-actions">
-              <button type="submit">Change password</button>
+              <ActionButton type="submit" icon="save">Change password</ActionButton>
             </div>
           </form>
         </section>
@@ -1023,8 +1305,8 @@ function CustomersView({ data, reload }: { data: AdminData; reload: (search?: st
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [entitlements, setEntitlements] = useState<Record<string, unknown> | null>(null);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [message, setMessage] = useFeedbackState('success');
+  const [error, setError] = useFeedbackState('error');
   const [sort, setSort] = useState<SortState<CustomerSortKey> | null>(null);
   const customers = useMemo(() => sortedRows(data.customers, sort, customerSortAccessors), [data.customers, sort]);
   const defaultTier = data.tiers.find(tier => tier.code === 'free')?.code || data.tiers[0]?.code || '';
@@ -1114,12 +1396,11 @@ function CustomersView({ data, reload }: { data: AdminData; reload: (search?: st
         <div className="toolbar-row">
           <form className="inline-form" onSubmit={(event) => { event.preventDefault(); reload(field(event.currentTarget, 'search')); }}>
             <input name="search" placeholder="Search name or email" />
-            <button type="submit">Search</button>
+            <ActionButton type="submit" icon="search">Search</ActionButton>
           </form>
-          <button type="button" onClick={() => setCreateOpen(true)}>Create customer</button>
+          <ActionButton type="button" icon="plus" onClick={() => setCreateOpen(true)}>Create customer</ActionButton>
         </div>
       </div>
-      {message && <div className="success-box compact">{message}</div>}
       {error && <div className="error-box compact">{error}</div>}
       <table>
         <thead>
@@ -1143,8 +1424,8 @@ function CustomersView({ data, reload }: { data: AdminData; reload: (search?: st
               <td>{customer.exportsToday || 0}</td>
               <td><StatusBadge value={customer.status} /></td>
               <td className="button-cell">
-                <button type="button" onClick={() => openEdit(customer)}>Edit</button>
-                <button type="button" className="danger-button" onClick={() => deleteCustomer(customer)}>Delete</button>
+                <ActionButton type="button" icon="edit" onClick={() => openEdit(customer)}>Edit</ActionButton>
+                <ActionButton type="button" icon="trash" className="danger-button" onClick={() => deleteCustomer(customer)}>Delete</ActionButton>
               </td>
             </tr>
           ))}
@@ -1157,8 +1438,8 @@ function CustomersView({ data, reload }: { data: AdminData; reload: (search?: st
             <label>Email<input name="email" type="email" placeholder="customer@email.com" required /></label>
             <label>Tier<CustomSelect name="tier" defaultValue={defaultTier} options={tierOptions(data.tiers)} placeholder="Tier" /></label>
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => setCreateOpen(false)}>Cancel</button>
-              <button type="submit">Create customer</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => setCreateOpen(false)}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="plus">Create customer</ActionButton>
             </div>
           </form>
         </Dialog>
@@ -1179,8 +1460,8 @@ function CustomersView({ data, reload }: { data: AdminData; reload: (search?: st
               )) : <span className="muted">Loading...</span>}
             </div>
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => { setEditing(null); setEntitlements(null); }}>Cancel</button>
-              <button type="submit">Save customer</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => { setEditing(null); setEntitlements(null); }}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="save">Save customer</ActionButton>
             </div>
           </form>
         </Dialog>
@@ -1192,10 +1473,10 @@ function CustomersView({ data, reload }: { data: AdminData; reload: (search?: st
 function SubscriptionsView({ data, reload }: { data: AdminData; reload: () => Promise<void> }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Subscription | null>(null);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [syncMessage, setSyncMessage] = useState('');
-  const [syncError, setSyncError] = useState('');
+  const [message, setMessage] = useFeedbackState('success');
+  const [error, setError] = useFeedbackState('error');
+  const [syncMessage, setSyncMessage] = useFeedbackState('success');
+  const [syncError, setSyncError] = useFeedbackState('error');
   const [sort, setSort] = useState<SortState<SubscriptionSortKey> | null>(null);
   const subscriptions = useMemo(() => sortedRows(data.subscriptions, sort, subscriptionSortAccessors), [data.subscriptions, sort]);
   const defaultTier = data.tiers.find(tier => tier.code === 'basic')?.code || data.tiers[0]?.code || '';
@@ -1276,16 +1557,14 @@ function SubscriptionsView({ data, reload }: { data: AdminData; reload: () => Pr
     <section className="panel">
       <div className="panel-head">
         <h2>Subscriptions</h2>
-        <button type="button" onClick={() => setCreateOpen(true)}>Create subscription</button>
+        <ActionButton type="button" icon="plus" onClick={() => setCreateOpen(true)}>Create subscription</ActionButton>
       </div>
       <form className="inline-form sync-row" onSubmit={syncPaddle}>
         <input name="syncSubscriptionId" placeholder="Paddle subscription ID" />
         <input name="syncCustomerId" placeholder="or Paddle customer ID" />
-        <button type="submit">Sync Paddle</button>
+        <ActionButton type="submit" icon="sync">Sync Paddle</ActionButton>
       </form>
-      {message && <div className="success-box compact">{message}</div>}
       {error && <div className="error-box compact">{error}</div>}
-      {syncMessage && <div className="success-box compact">{syncMessage}</div>}
       {syncError && <div className="error-box compact">{syncError}</div>}
       <table>
         <thead>
@@ -1308,7 +1587,7 @@ function SubscriptionsView({ data, reload }: { data: AdminData; reload: () => Pr
               <td>{sub.paddleSubscriptionId || '—'}</td>
               <td>{dateOnly(sub.currentPeriodEnd)}</td>
               <td>{sub.cancelAtPeriodEnd ? 'canceling ' : ''}{sub.manualOverride ? 'manual' : 'Paddle'}</td>
-              <td><button type="button" onClick={() => setEditing(sub)}>Edit</button></td>
+              <td><ActionButton type="button" icon="edit" onClick={() => setEditing(sub)}>Edit</ActionButton></td>
             </tr>
           ))}
         </tbody>
@@ -1322,8 +1601,8 @@ function SubscriptionsView({ data, reload }: { data: AdminData; reload: () => Pr
             <label>Paddle customer ID<input name="paddleCustomerId" placeholder="Paddle customer ID" /></label>
             <label>Paddle subscription ID<input name="paddleSubscriptionId" placeholder="Paddle subscription ID" /></label>
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => setCreateOpen(false)}>Cancel</button>
-              <button type="submit">Create subscription</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => setCreateOpen(false)}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="plus">Create subscription</ActionButton>
             </div>
           </form>
         </Dialog>
@@ -1338,8 +1617,8 @@ function SubscriptionsView({ data, reload }: { data: AdminData; reload: () => Pr
             <label className="check"><input name="cancelAtPeriodEnd" type="checkbox" defaultChecked={editing.cancelAtPeriodEnd} /> Cancel at period end</label>
             <label className="check"><input name="manualOverride" type="checkbox" defaultChecked={editing.manualOverride} /> Manual override</label>
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => setEditing(null)}>Cancel</button>
-              <button type="submit">Save subscription</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => setEditing(null)}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="save">Save subscription</ActionButton>
             </div>
           </form>
         </Dialog>
@@ -1351,8 +1630,8 @@ function SubscriptionsView({ data, reload }: { data: AdminData; reload: () => Pr
 function PromotionsView({ data, reload }: { data: AdminData; reload: () => Promise<void> }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Promotion | null>(null);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [message, setMessage] = useFeedbackState('success');
+  const [error, setError] = useFeedbackState('error');
   const [sort, setSort] = useState<SortState<PromotionSortKey> | null>(null);
   const promotions = useMemo(() => sortedRows(data.promotions, sort, promotionSortAccessors), [data.promotions, sort]);
   const anyTierOptions = tierOptions(data.tiers, { value: '', label: 'Any tier' });
@@ -1414,9 +1693,8 @@ function PromotionsView({ data, reload }: { data: AdminData; reload: () => Promi
     <section className="panel">
       <div className="panel-head">
         <h2>Promotions</h2>
-        <button type="button" onClick={() => setCreateOpen(true)}>Create promotion</button>
+        <ActionButton type="button" icon="plus" onClick={() => setCreateOpen(true)}>Create promotion</ActionButton>
       </div>
-      {message && <div className="success-box compact">{message}</div>}
       {error && <div className="error-box compact">{error}</div>}
       <table>
         <thead>
@@ -1439,7 +1717,7 @@ function PromotionsView({ data, reload }: { data: AdminData; reload: () => Promi
               <td>{promo.discountType} {promo.discountValue}</td>
               <td>{promo.redemptionCount}{promo.maxRedemptions ? ` / ${promo.maxRedemptions}` : ''}</td>
               <td><StatusBadge value={promo.active} /></td>
-              <td><button type="button" onClick={() => setEditing(promo)}>Edit</button></td>
+              <td><ActionButton type="button" icon="edit" onClick={() => setEditing(promo)}>Edit</ActionButton></td>
             </tr>
           ))}
         </tbody>
@@ -1457,8 +1735,8 @@ function PromotionsView({ data, reload }: { data: AdminData; reload: () => Promi
             <label>Description<textarea name="description" placeholder="Description" /></label>
             <label className="check"><input name="active" type="checkbox" defaultChecked /> Active</label>
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => setCreateOpen(false)}>Cancel</button>
-              <button type="submit">Create promotion</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => setCreateOpen(false)}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="plus">Create promotion</ActionButton>
             </div>
           </form>
         </Dialog>
@@ -1475,8 +1753,8 @@ function PromotionsView({ data, reload }: { data: AdminData; reload: () => Promi
             <label>Paddle discount ID<input name="paddleDiscountId" defaultValue={editing.paddleDiscountId || ''} /></label>
             <label className="check"><input name="active" type="checkbox" defaultChecked={editing.active} /> Active</label>
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => setEditing(null)}>Cancel</button>
-              <button type="submit">Save promotion</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => setEditing(null)}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="save">Save promotion</ActionButton>
             </div>
           </form>
         </Dialog>
@@ -1488,8 +1766,8 @@ function PromotionsView({ data, reload }: { data: AdminData; reload: () => Promi
 function TiersView({ data, reload }: { data: AdminData; reload: () => Promise<void> }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<PriceTier | null>(null);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [message, setMessage] = useFeedbackState('success');
+  const [error, setError] = useFeedbackState('error');
   const [sort, setSort] = useState<SortState<PriceTierSortKey> | null>(null);
   const tiers = useMemo(() => sortedRows(data.tiers, sort, priceTierSortAccessors), [data.tiers, sort]);
 
@@ -1550,9 +1828,8 @@ function TiersView({ data, reload }: { data: AdminData; reload: () => Promise<vo
     <section className="panel">
       <div className="panel-head">
         <h2>Price Tiers</h2>
-        <button type="button" onClick={() => setCreateOpen(true)}>Create tier</button>
+        <ActionButton type="button" icon="plus" onClick={() => setCreateOpen(true)}>Create tier</ActionButton>
       </div>
-      {message && <div className="success-box compact">{message}</div>}
       {error && <div className="error-box compact">{error}</div>}
       <table>
         <thead>
@@ -1578,8 +1855,8 @@ function TiersView({ data, reload }: { data: AdminData; reload: () => Promise<vo
               <td>{tier.watermarkEnabled ? 'watermark ' : ''}{tier.brandingEnabled ? 'branding ' : ''}{tier.styleEditorEnabled ? 'style ' : ''}{tier.benefitEditorEnabled ? 'benefit' : ''}</td>
               <td><StatusBadge value={tier.active} /></td>
               <td className="button-cell">
-                <button type="button" onClick={() => setEditing(tier)}>Edit</button>
-                <button type="button" className="danger-button" onClick={() => deleteTier(tier)}>Delete</button>
+                <ActionButton type="button" icon="edit" onClick={() => setEditing(tier)}>Edit</ActionButton>
+                <ActionButton type="button" icon="trash" className="danger-button" onClick={() => deleteTier(tier)}>Delete</ActionButton>
               </td>
             </tr>
           ))}
@@ -1601,8 +1878,8 @@ function TiersView({ data, reload }: { data: AdminData; reload: () => Promise<vo
             <label className="check"><input name="benefitEditorEnabled" type="checkbox" /> Benefit</label>
             <label className="check"><input name="active" type="checkbox" defaultChecked /> Active</label>
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => setCreateOpen(false)}>Cancel</button>
-              <button type="submit">Create tier</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => setCreateOpen(false)}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="plus">Create tier</ActionButton>
             </div>
           </form>
         </Dialog>
@@ -1622,8 +1899,8 @@ function TiersView({ data, reload }: { data: AdminData; reload: () => Promise<vo
             <label className="check"><input name="benefitEditorEnabled" type="checkbox" defaultChecked={editing.benefitEditorEnabled} /> Benefit</label>
             <label className="check"><input name="active" type="checkbox" defaultChecked={editing.active} /> Active</label>
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => setEditing(null)}>Cancel</button>
-              <button type="submit">Save tier</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => setEditing(null)}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="save">Save tier</ActionButton>
             </div>
           </form>
         </Dialog>
@@ -1633,8 +1910,8 @@ function TiersView({ data, reload }: { data: AdminData; reload: () => Promise<vo
 }
 
 function EntitlementsView({ data, reload }: { data: AdminData; reload: () => Promise<void> }) {
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [message, setMessage] = useFeedbackState('success');
+  const [error, setError] = useFeedbackState('error');
   const [savingKey, setSavingKey] = useState('');
   const grantMap = useMemo(() => {
     const map = new Map<string, EntitlementGrant>();
@@ -1677,7 +1954,6 @@ function EntitlementsView({ data, reload }: { data: AdminData; reload: () => Pro
     <section className="panel">
       <h2>Entitlements</h2>
       <p className="muted">Entitlements are resolved server-side from the customer's active subscription tier or assigned tier.</p>
-      {message && <div className="success-box compact">{message}</div>}
       {error && <div className="error-box compact">{error}</div>}
       <table>
         <thead>
@@ -1721,8 +1997,8 @@ function EmailsView({ data, reload }: { data: AdminData; reload: () => Promise<v
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<EmailTemplate | null>(null);
   const [testing, setTesting] = useState<EmailTemplate | null>(null);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [message, setMessage] = useFeedbackState('success');
+  const [error, setError] = useFeedbackState('error');
   const settings = data.emailSettings;
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
@@ -1851,7 +2127,7 @@ function EmailsView({ data, reload }: { data: AdminData; reload: () => Promise<v
             <label>Resend API key<input name="resendApiKey" type="password" placeholder={settings.hasResendApiKey ? `Keep current key (${settings.resendApiKeyPreview})` : 're_...'} autoComplete="off" /></label>
             <label className="check"><input name="clearResendApiKey" type="checkbox" /> Clear stored API key</label>
             <div className="form-actions">
-              <button type="submit">Save settings</button>
+              <ActionButton type="submit" icon="save">Save settings</ActionButton>
             </div>
           </form>
         ) : (
@@ -1861,9 +2137,8 @@ function EmailsView({ data, reload }: { data: AdminData; reload: () => Promise<v
       <div className="panel email-template-panel">
         <div className="panel-head">
           <h2>Email Templates</h2>
-          <button type="button" onClick={() => setCreateOpen(true)}>Create template</button>
+          <ActionButton type="button" icon="plus" onClick={() => setCreateOpen(true)}>Create template</ActionButton>
         </div>
-        {message && <div className="success-box compact">{message}</div>}
         {error && <div className="error-box compact">{error}</div>}
         <table>
           <thead><tr><th>Template</th><th>Subject</th><th>Variables</th><th>Status</th><th></th></tr></thead>
@@ -1875,12 +2150,12 @@ function EmailsView({ data, reload }: { data: AdminData; reload: () => Promise<v
               <td>{template.variables?.length ? template.variables.map(variable => variable.label || variableToken(variable.text)).join(', ') : '—'}</td>
                 <td><StatusBadge value={template.enabled} /></td>
                 <td className="button-cell">
-                  <button type="button" onClick={() => openEdit(template)}>Edit</button>
-                  <button type="button" className="ghost-button" onClick={() => setTesting(template)}>Test</button>
+                  <ActionButton type="button" icon="edit" onClick={() => openEdit(template)}>Edit</ActionButton>
+                  <ActionButton type="button" icon="mail" className="ghost-button" onClick={() => setTesting(template)}>Test</ActionButton>
                   {template.system ? (
-                    <button type="button" className="ghost-button" disabled title="System template cannot be deleted">Delete</button>
+                    <ActionButton type="button" icon="trash" className="ghost-button" disabled title="System template cannot be deleted">Delete</ActionButton>
                   ) : (
-                    <button type="button" className="danger-button" onClick={() => deleteTemplate(template)}>Delete</button>
+                    <ActionButton type="button" icon="trash" className="danger-button" onClick={() => deleteTemplate(template)}>Delete</ActionButton>
                   )}
                 </td>
               </tr>
@@ -1899,8 +2174,8 @@ function EmailsView({ data, reload }: { data: AdminData; reload: () => Promise<v
             <EmailTemplateFields />
             <label className="check"><input name="enabled" type="checkbox" defaultChecked /> Enabled</label>
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => setCreateOpen(false)}>Cancel</button>
-              <button type="submit">Create template</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => setCreateOpen(false)}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="plus">Create template</ActionButton>
             </div>
           </form>
         </Dialog>
@@ -1920,8 +2195,8 @@ function EmailsView({ data, reload }: { data: AdminData; reload: () => Promise<v
             <EmailTemplateFields template={editing} />
             <label className="check"><input name="enabled" type="checkbox" defaultChecked={editing.enabled} /> Enabled</label>
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => setEditing(null)}>Cancel</button>
-              <button type="submit">Save template</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => setEditing(null)}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="save">Save template</ActionButton>
             </div>
           </form>
         </Dialog>
@@ -1937,8 +2212,8 @@ function EmailsView({ data, reload }: { data: AdminData; reload: () => Promise<v
             <label>Recipient<input name="to" type="email" placeholder="recipient@example.com" required /></label>
             <TestVariablesEditor variables={testing.variables} />
             <div className="dialog-actions">
-              <button className="ghost-button" type="button" onClick={() => setTesting(null)}>Cancel</button>
-              <button type="submit">Send test</button>
+              <ActionButton className="ghost-button" type="button" icon="x" onClick={() => setTesting(null)}>Cancel</ActionButton>
+              <ActionButton type="submit" icon="mail">Send test</ActionButton>
             </div>
           </form>
         </Dialog>

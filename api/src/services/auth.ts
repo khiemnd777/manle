@@ -824,24 +824,20 @@ export async function completeCustomerOAuth(
   };
 }
 
-export async function requestPasswordReset(input: { email?: string }) {
+export async function requestPasswordReset(
+  input: { email?: string },
+  options: { resetOrigin?: string; scope?: LoginScope } = {},
+) {
   const email = cleanEmail(input.email);
   if (!email.includes('@')) return { ok: true };
 
-  const sql = db();
-  const row = await one<UserRow>(sql`
-    select id, email, name, role, status, password_hash
-    from users
-    where lower(email) = ${email}
-      and status = 'active'
-      and password_hash is not null
-    limit 1
-  `);
-  if (!row) return { ok: true };
+  const row = await findLoginUser(email, options.scope);
+  if (!row || row.status !== 'active' || !row.password_hash) return { ok: true };
 
   const token = randomToken();
   const tokenHash = await sha256Hex(token);
   const expires = expiresInMinutes(60);
+  const sql = db();
   await sql.begin(async (tx: any) => {
     await tx`
       update password_reset_tokens
@@ -855,7 +851,7 @@ export async function requestPasswordReset(input: { email?: string }) {
     `;
   });
 
-  const resetUrl = new URL(config.feOrigin);
+  const resetUrl = new URL(options.resetOrigin || config.feOrigin);
   resetUrl.searchParams.set('reset_token', token);
   await sendTemplateEmailQuietly('password_reset', row.email, {
     name: row.name || row.email,
@@ -866,13 +862,18 @@ export async function requestPasswordReset(input: { email?: string }) {
   return { ok: true };
 }
 
-export async function resetPassword(input: { token?: string; password?: string }) {
+export async function resetPassword(
+  input: { token?: string; password?: string },
+  options: { scope?: LoginScope } = {},
+) {
   const token = (input.token || '').trim();
   const password = input.password || '';
   if (token.length < 20) fail(400, 'invalid_reset_token', 'Password reset token is invalid or expired.');
   if (password.length < 8) fail(400, 'weak_password', 'Password must be at least 8 characters.');
 
   const tokenHash = await sha256Hex(token);
+  const scope = options.scope || '';
+  const role = options.scope && options.scope !== 'system' ? options.scope : null;
   const sql = db();
   const row = await one<{ tokenId: string; userId: string }>(sql`
     select
@@ -884,6 +885,11 @@ export async function resetPassword(input: { token?: string; password?: string }
       and p.used_at is null
       and p.expires_at > now()
       and u.status = 'active'
+      and (
+        ${scope} = ''
+        or (${scope} = 'system' and u.role in ('admin', 'user'))
+        or u.role = ${role}
+      )
     limit 1
   `);
   if (!row) fail(400, 'invalid_reset_token', 'Password reset token is invalid or expired.');

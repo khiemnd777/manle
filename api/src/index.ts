@@ -247,13 +247,13 @@ async function route(request: Request) {
   if (request.method === 'POST' && url.pathname === '/api/auth/forgot-password') {
     const body = await readJson<{ email?: string }>(request);
     await assertRateLimit(request, 'password-reset-request', String(body.email || '').toLowerCase(), 5, 300);
-    return json(request, await requestPasswordReset(body));
+    return json(request, await requestPasswordReset(body, { resetOrigin: config.feOrigin, scope: 'customer' }));
   }
 
   if (request.method === 'POST' && url.pathname === '/api/auth/reset-password') {
     const body = await readJson<{ token?: string; password?: string }>(request);
     await assertRateLimit(request, 'password-reset', clientIp(request), 10, 300);
-    return json(request, await resetPassword(body));
+    return json(request, await resetPassword(body, { scope: 'customer' }));
   }
 
   if (request.method === 'POST' && url.pathname === '/api/auth/refresh') {
@@ -299,6 +299,18 @@ async function route(request: Request) {
   if (request.method === 'POST' && url.pathname === '/api/admin/auth/login') {
     const result = await loginAdmin(await readJson(request));
     return json(request, { actor: result.actor }, 200, authCookieHeaders(result));
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/admin/auth/forgot-password') {
+    const body = await readJson<{ email?: string }>(request);
+    await assertRateLimit(request, 'admin-password-reset-request', String(body.email || '').toLowerCase(), 5, 300);
+    return json(request, await requestPasswordReset(body, { resetOrigin: config.adminOrigin, scope: 'system' }));
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/admin/auth/reset-password') {
+    const body = await readJson<{ token?: string; password?: string }>(request);
+    await assertRateLimit(request, 'admin-password-reset', clientIp(request), 10, 300);
+    return json(request, await resetPassword(body, { scope: 'system' }));
   }
 
   if (request.method === 'POST' && url.pathname === '/api/admin/auth/refresh') {

@@ -171,6 +171,8 @@ async function request(path: string, init: RequestInit = {}) {
 
 function canRefresh(path: string) {
   return !path.includes('/auth/login')
+    && !path.includes('/auth/forgot-password')
+    && !path.includes('/auth/reset-password')
     && !path.includes('/auth/logout')
     && !path.includes('/auth/refresh')
     && !path.includes('/bootstrap');
@@ -207,6 +209,10 @@ export const api = {
     apiFetch<{ actor: Actor }>('/api/admin/bootstrap', { method: 'POST', body: JSON.stringify(body) }),
   login: (body: { email: string; password: string }) =>
     apiFetch<{ actor: Actor }>('/api/admin/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  forgotPassword: (body: { email: string }) =>
+    apiFetch<{ ok: true }>('/api/admin/auth/forgot-password', { method: 'POST', body: JSON.stringify(body) }),
+  resetPassword: (body: { token: string; password: string }) =>
+    apiFetch<{ ok: true }>('/api/admin/auth/reset-password', { method: 'POST', body: JSON.stringify(body) }),
   logout: () => apiFetch<{ ok: true }>('/api/admin/auth/logout', { method: 'POST' }),
   me: () => apiFetch<{ actor: Actor }>('/api/admin/me'),
   updateProfile: (body: { name: string; email: string; currentPassword?: string; newPassword?: string }) =>
