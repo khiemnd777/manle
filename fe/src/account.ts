@@ -29,6 +29,9 @@ type AccountState = {
   actor: Actor | null;
   tierCode: string;
   entitlements: Record<string, unknown>;
+  billing: {
+    hasPaddleCustomer: boolean;
+  };
   quota: Quota;
   requiresLogin: boolean;
 };
@@ -99,6 +102,9 @@ const defaultAccount: AccountState = {
     style_editor: false,
     benefit_editor: false,
   },
+  billing: {
+    hasPaddleCustomer: false,
+  },
   quota: {
     limit: 3,
     used: 0,
@@ -165,6 +171,10 @@ function accountLabel() {
 
 function tierLabel() {
   return accountState.tierCode.charAt(0).toUpperCase() + accountState.tierCode.slice(1);
+}
+
+function hasLinkedPaddleCustomer() {
+  return Boolean(accountState.billing?.hasPaddleCustomer);
 }
 
 function hasProLivingBenefitEditor() {
@@ -397,6 +407,7 @@ function renderAccount() {
   text('profileQuota', `${quota.used}/${quota.limit}`);
   text('profileStatus', hasActor ? (actor?.status || 'active') : 'Guest');
   text('profileHelp', hasActor ? 'Cập nhật name/email. Current password chỉ cần khi đổi email.' : 'Login để cập nhật name/email.');
+  text('profileBillingBtn', accountState.tierCode === 'free' || !hasLinkedPaddleCustomer() ? 'Choose plan' : 'Billing');
 
   if (hasActor && actor) {
     setInputValue('profileNameInput', actor.name || '');
@@ -808,11 +819,21 @@ async function openProfileBilling() {
     openAuth('login');
     return;
   }
-  if (accountState.tierCode === 'free') {
+  if (accountState.tierCode === 'free' || !hasLinkedPaddleCustomer()) {
     scrollToPricing();
+    setProfileMessage('Choose a plan to start Paddle billing for this account.', 'info');
     return;
   }
-  await openCustomerPortal();
+  try {
+    await openCustomerPortal();
+  } catch (error) {
+    if ((error as Error & { code?: string })?.code === 'missing_paddle_customer') {
+      scrollToPricing();
+      setProfileMessage('Choose a plan to start Paddle billing for this account.', 'info');
+      return;
+    }
+    throw error;
+  }
 }
 
 function bindAuthUi() {

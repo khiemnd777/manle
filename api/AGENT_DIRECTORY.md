@@ -42,8 +42,8 @@ Customer account and billing:
 
 | Method/path | Auth | Handler/service | Response/side effect |
 | --- | --- | --- | --- |
-| `GET /api/me` | optional cookie | `currentUser`, `accountEntitlements` | Account state for FE; guest returns free tier and `requiresLogin`. |
-| `GET /api/entitlements` | optional cookie | `currentUser`, `accountEntitlements` | Same effective entitlements/quota shape used by FE. |
+| `GET /api/me` | optional cookie | `currentUser`, `accountEntitlements` | Account state for FE; guest returns free tier, billing link status, and `requiresLogin`. |
+| `GET /api/entitlements` | optional cookie | `currentUser`, `accountEntitlements` | Same effective entitlements/quota/billing shape used by FE. |
 | `PATCH /api/profile` | `requireUser` | `updateProfile`, then `accountEntitlements` | Name/email/password self-service; email/password require current password. |
 | `POST /api/auth/signup` | none | `assertRateLimit`, `signupCustomer` | Creates customer, returns account state plus auth cookies. |
 | `POST /api/auth/login` | none | `assertRateLimit`, `loginCustomer` | Customer login only; returns account state plus cookies. |

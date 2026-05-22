@@ -67,16 +67,31 @@ async function usageToday(userId: string) {
   return Number(row?.exportCount || 0);
 }
 
+async function billingState(userId: string) {
+  const sql = db();
+  const row = await one<{ paddleCustomerId: string | null }>(sql`
+    select paddle_customer_id as "paddleCustomerId"
+    from users
+    where id = ${userId}
+    limit 1
+  `);
+  return {
+    hasPaddleCustomer: Boolean(row?.paddleCustomerId),
+  };
+}
+
 export async function accountEntitlements(actor: Actor | null) {
   const effective = actor
     ? await effectiveEntitlementsForUser(actor.id)
     : await effectiveEntitlementsForTier('free');
   const limit = numericEntitlement(effective.entitlements.exports_per_day, 0);
   const used = actor ? await usageToday(actor.id) : 0;
+  const billing = actor ? await billingState(actor.id) : { hasPaddleCustomer: false };
   return {
     actor,
     tierCode: effective.tierCode,
     entitlements: effective.entitlements,
+    billing,
     quota: {
       // The quota window is Postgres current_date. Docker Postgres defaults to UTC,
       // which keeps quota reset deterministic across FE/API containers.

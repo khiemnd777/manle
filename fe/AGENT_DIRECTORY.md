@@ -207,6 +207,10 @@ If account shape changes, update:
 - `../api/src/services/entitlements.ts` response shape
 - `../api/src/index.ts` route if endpoint contract changes
 
+Account state includes billing link status:
+
+- `billing.hasPaddleCustomer`: controls whether the profile Billing button opens Paddle Customer Portal or sends the user to pricing checkout.
+
 ## PDF Parser Directory
 
 `src/pdf.ts` owns all PDF autofill behavior.
