@@ -52,6 +52,8 @@ type CheckoutConfig = {
   customData: Record<string, unknown>;
 };
 
+type PaddleClientConfig = Pick<CheckoutConfig, 'environment' | 'clientToken'>;
+
 type PricingTier = {
   code: string;
   name: string;
@@ -118,6 +120,7 @@ let profileSection: ProfileSection = 'account';
 let checkoutButtonsBound = false;
 let pricingTiers: PricingTier[] = [];
 let oauthCheckoutResumeAttempted = false;
+let paddlePaymentLinkOpened = false;
 const FEATURE_AUTH_TTL_MS = 60_000;
 const featureAuthorizationExpiresAt = new Map<FeatureKey, number>();
 
@@ -703,7 +706,7 @@ function checkoutSuccessUrl() {
   return url.toString();
 }
 
-async function openPaddleCheckout(config: CheckoutConfig) {
+async function initializePaddleClient(config: PaddleClientConfig) {
   await loadPaddleScript();
   const paddle = window.Paddle;
   if (!paddle) throw new Error('Paddle Checkout is unavailable.');
@@ -721,11 +724,36 @@ async function openPaddleCheckout(config: CheckoutConfig) {
     });
     paddleInitializedToken = config.clientToken;
   }
+  return paddle;
+}
+
+async function openPaddleCheckout(config: CheckoutConfig) {
+  const paddle = await initializePaddleClient(config);
   paddle.Checkout.open({
     items: [{ priceId: config.priceId, quantity: 1 }],
     customer: config.customer,
     customData: config.customData,
     discountId: config.discountId || undefined,
+    settings: {
+      displayMode: 'overlay',
+      successUrl: checkoutSuccessUrl(),
+    },
+  });
+}
+
+function paymentLinkTransactionId() {
+  const transactionId = new URLSearchParams(window.location.search).get('_ptxn') || '';
+  return /^txn_[a-z0-9]+$/i.test(transactionId) ? transactionId : '';
+}
+
+async function openPaddlePaymentLinkCheckout() {
+  const transactionId = paymentLinkTransactionId();
+  if (!transactionId || paddlePaymentLinkOpened) return;
+  paddlePaymentLinkOpened = true;
+  const config = await apiFetch<PaddleClientConfig>('/api/billing/paddle-client');
+  const paddle = await initializePaddleClient(config);
+  paddle.Checkout.open({
+    transactionId,
     settings: {
       displayMode: 'overlay',
       successUrl: checkoutSuccessUrl(),
@@ -913,6 +941,7 @@ export async function authorizeFeatureUse(feature: FeatureKey, label = 'this fea
 export function bindAccountAndBilling() {
   renderAccount();
   bindAuthUi();
+  openPaddlePaymentLinkCheckout().catch(error => alert(error.message || error));
   loadPricing().catch(error => console.warn('Pricing state unavailable:', error));
   loadAccount().catch(error => {
     console.warn('Account state unavailable:', error);

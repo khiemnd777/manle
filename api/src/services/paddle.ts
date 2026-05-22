@@ -208,6 +208,13 @@ export async function getPaddleSettings() {
   return redactedPaddleSettings(await paddleSettingsRow());
 }
 
+export async function getPaddleClientConfig() {
+  return {
+    environment: config.paddleEnv,
+    clientToken: await requirePaddleClientToken(),
+  };
+}
+
 export async function updatePaddleSettings(actor: Actor, input: PaddleSettingsInput) {
   const hasApiKeyInput = Object.prototype.hasOwnProperty.call(input, 'apiKey');
   const hasClientTokenInput = Object.prototype.hasOwnProperty.call(input, 'clientToken');

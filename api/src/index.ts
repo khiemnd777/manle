@@ -64,6 +64,7 @@ import {
 } from './services/email';
 import {
   getPaddleCheckoutConfig,
+  getPaddleClientConfig,
   createCustomerPortalSession,
   getPaddleSettings,
   handlePaddleWebhook,
@@ -283,6 +284,10 @@ async function route(request: Request) {
 
   if (request.method === 'POST' && url.pathname === '/api/billing/checkout') {
     return json(request, await getPaddleCheckoutConfig(await requireUser(request), await readJson(request)));
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/billing/paddle-client') {
+    return json(request, await getPaddleClientConfig());
   }
 
   if (request.method === 'POST' && url.pathname === '/api/billing/customer-portal') {

@@ -55,6 +55,7 @@ Customer account and billing:
 | `POST /api/auth/logout` | optional cookie | `logoutSession` | Revokes access/refresh tokens and clears cookies. |
 | `POST /api/exports/authorize` | `requireUser` | `authorizeExport` | Increments quota if under limit; returns watermark/branding/style flags. |
 | `POST /api/billing/checkout` | `requireUser` | `getPaddleCheckoutConfig` | Returns Paddle client token, price ID, tier, discount, customer/customData. |
+| `GET /api/billing/paddle-client` | none | `getPaddleClientConfig` | Returns public Paddle environment and client-side token for payment-link checkout pages. |
 | `POST /api/billing/customer-portal` | `requireUser` | `createCustomerPortalSession` | Requires linked `paddle_customer_id`. |
 | `POST /api/webhooks/paddle` | Paddle signature | `handlePaddleWebhook` | Verifies raw body signature, idempotently stores event, updates customer/subscription. |
 
@@ -139,6 +140,7 @@ before reaching these data-management branches.
 - Settings: `getPaddleSettings`, `updatePaddleSettings`, admin-stored API key/client token/webhook secret with env fallback.
 - Config guards: `requirePaddleApiKey`, `requirePaddleClientToken`.
 - API wrapper: `paddleFetch`.
+- Client config: `getPaddleClientConfig` for Paddle payment links.
 - Checkout: `getPaddleCheckoutConfig`.
 - Portal: `createCustomerPortalSession`.
 - Webhook verification: `verifyPaddleWebhook`, `parseSignatureHeader`, `hmacSha256Hex`, `timingSafeEqual`.

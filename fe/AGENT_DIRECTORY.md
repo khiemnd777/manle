@@ -14,6 +14,7 @@ DOM IDs, keywords, and owning source files.
 | landing, pricing, hero, login button, profile badge | `src/template.html`, `src/account.ts` | `src/styles.css` | `landing`, `pricing`, `landingLoginBtn`, `landingProfileBtn`, `data-checkout-tier`, `promoCodeInput` |
 | account, auth, login, signup, logout, session, profile | `src/account.ts` | `src/template.html`, `../api/src/index.ts`, `../api/src/services/auth.ts` | `AccountState`, `authModal`, `authLoginForm`, `authSignupForm`, `profileForm`, `/api/me`, `/api/profile` |
 | billing, Paddle checkout, customer portal, tier, quota | `src/account.ts` | `../api/src/services/paddle.ts`, `../api/src/services/entitlements.ts` | `startCheckout`, `openPaddleCheckout`, `/api/billing/checkout`, `/api/billing/customer-portal`, `quota` |
+| Paddle payment link, default payment link, `_ptxn` | `src/account.ts` | `../api/src/services/paddle.ts`, `../api/src/index.ts` | `openPaddlePaymentLinkCheckout`, `paymentLinkTransactionId`, `/api/billing/paddle-client`, `/pay?_ptxn=` |
 | export PDF/PNG/JPG, download, html2canvas, jsPDF | `src/exportCard.ts` | `src/account.ts`, `src/protection.ts`, `src/styles.css` | `exportCardImage`, `printBtn`, `pngBtn`, `jpgBtn`, `authorizeCardExport`, `html2canvas`, `jsPDF`, `exporting` |
 | IUL form fields, client banner, cash value, death benefit | `src/render.ts`, `src/core.ts` | `src/events.ts`, `src/template.html`, `src/persistence.ts` | `faceAmount`, `monthlyPrem`, `premYears`, `rate`, `dragTune`, `cbName`, `cvRows`, `b3Amt`, `state.actualCSV` |
 | Term Life, Trendsetter, term card, term premium | `src/render.ts`, `src/pdf.ts` | `src/template.html`, `src/events.ts`, `src/persistence.ts` | `renderTerm`, `cardOutTerm`, `termFaceAmount`, `termMonthlyPrem`, `termLength`, `t_cbFace`, `t_dbAmt`, `Trendsetter` |
@@ -195,6 +196,7 @@ Frontend uses `VITE_API_BASE_URL` or `http://127.0.0.1:8787`.
 - `POST /api/auth/logout`
 - `POST /api/exports/authorize`
 - `POST /api/billing/checkout`
+- `GET /api/billing/paddle-client`
 - `POST /api/billing/customer-portal`
 
 If account shape changes, update:
