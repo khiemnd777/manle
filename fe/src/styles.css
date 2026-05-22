@@ -2441,16 +2441,6 @@
     box-shadow: 0 0 0 2px rgba(245,184,64,.55);
   }
   .ta-pill img { height: 56px; width: auto; display: block; }
-  .fiveways-logo {
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-    padding: 2px 4px;
-    background: #ffffff;
-    border-radius: 6px;
-  }
-  .fiveways-logo img { height: 56px; width: auto; display: block; }
-
   /* CLIENT BANNER */
   .client-banner {
     background: var(--navy);

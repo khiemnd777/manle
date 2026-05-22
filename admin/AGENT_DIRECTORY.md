@@ -21,6 +21,7 @@ response types live in `src/api/client.ts`.
 | customer effective entitlements | `src/views/CustomersView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `entitlement-list`, `api.customerEntitlements`, `/customers/:id/entitlements`, `effectiveEntitlementsForUser` |
 | subscriptions, manual override, cancel at period end | `src/views/SubscriptionsView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `SubscriptionsView`, `createSubscription`, `updateSubscription`, `manualOverride`, `cancelAtPeriodEnd` |
 | Paddle sync by subscription/customer ID | `src/views/SubscriptionsView.tsx` | `src/api/client.ts`, `../api/src/services/paddle.ts` | `syncPaddle`, `syncSubscriptionId`, `syncCustomerId`, `/api/admin/paddle/sync` |
+| Paddle credentials settings | `src/views/PaddleSettingsView.tsx` | `src/api/client.ts`, `../api/src/services/paddle.ts`, `../api/db/migrations/010_paddle_settings.sql`, `../api/db/migrations/011_paddle_settings_tokens.sql` | `PaddleSettingsView`, `api.paddleSettings`, `updatePaddleSettings`, `/api/admin/paddle/settings` |
 | promotions, promo code, Paddle discount ID | `src/views/PromotionsView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `PromotionsView`, `createPromotion`, `updatePromotion`, `PROMO10`, `paddleDiscountId` |
 | price tiers, export limits, watermark, branding, style flag, Paddle price ID | `src/views/TiersView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts`, `../api/db/migrations/001_admin_billing.sql` | `TiersView`, `savePriceTier`, `updatePriceTier`, `exportLimitPerDay`, `watermarkEnabled`, `paddlePriceId` |
 | entitlements matrix | `src/views/EntitlementsView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `EntitlementsView`, `grantMap`, `updateTierEntitlement`, `EntitlementDefinition`, `EntitlementGrant` |
@@ -50,6 +51,7 @@ View union in `src/adminTypes.ts`; sidebar metadata in `src/viewConfig.ts`:
 - `promotions`
 - `tiers`
 - `entitlements`
+- `paddle`
 - `emails`
 - `audit`
 - `profile`
@@ -161,6 +163,12 @@ show stale admin state.
 - Value parsing depends on backend definition `valueType`: `number`, `boolean`, `string`.
 - Saves through `api.updateTierEntitlement`.
 
+`PaddleSettingsView`:
+
+- Form fields: `apiKey`, `clientToken`, `webhookSecret`, `clearApiKey`, `clearClientToken`, `clearWebhookSecret`.
+- Displays redacted effective credential previews, sources, and updated time.
+- Saves through `api.updatePaddleSettings`.
+
 `AuditView`:
 
 - Displays `createdAt`, `actorEmail`, `action`, `targetType:targetId`, JSON metadata.
@@ -215,6 +223,8 @@ Exported API methods:
 - `updatePriceTier`
 - `entitlements`
 - `updateTierEntitlement`
+- `paddleSettings`
+- `updatePaddleSettings`
 - `audit`
 - `syncPaddle`
 
@@ -229,6 +239,7 @@ mainly by `../api/src/services/admin.ts`.
 - Customers: `/api/admin/customers`, `/api/admin/customers/:id`, `/api/admin/customers/:id/entitlements`
 - Subscriptions: `/api/admin/subscriptions`, `/api/admin/subscriptions/:id`
 - Paddle sync: `/api/admin/paddle/sync`
+- Paddle settings: `/api/admin/paddle/settings`
 - Promotions: `/api/admin/promotions`, `/api/admin/promotions/:id`
 - Price tiers: `/api/admin/price-tiers`, `/api/admin/price-tiers/:code`
 - Entitlements: `/api/admin/entitlements`, `/api/admin/entitlements/:tierCode/:key`

@@ -13,18 +13,117 @@ type PaddleEvent = {
   data?: Record<string, any>;
 };
 
-function requirePaddleApiKey() {
-  if (!config.paddleApiKey) {
-    fail(501, 'paddle_not_configured', 'Paddle API key is not configured.');
-  }
-  return config.paddleApiKey;
+type CredentialSource = 'admin' | 'env' | 'none';
+
+type PaddleSettingsRow = {
+  apiKey: string;
+  clientToken: string;
+  webhookSecret: string;
+  updatedAt: string | Date;
+};
+
+export type PaddleSettingsInput = {
+  apiKey?: string;
+  clientToken?: string;
+  webhookSecret?: string;
+  clearApiKey?: boolean;
+  clearClientToken?: boolean;
+  clearWebhookSecret?: boolean;
+};
+
+function cleanText(value?: string | null) {
+  return (value || '').trim();
 }
 
-function requirePaddleClientToken() {
-  if (!config.paddleClientToken) {
+function credentialPreview(value: string) {
+  return value ? `...${value.slice(-4)}` : null;
+}
+
+function credentialStatus(storedValue: string, envValue: string) {
+  const effectiveValue = storedValue || envValue;
+  const source: CredentialSource = storedValue ? 'admin' : envValue ? 'env' : 'none';
+  return {
+    hasValue: Boolean(effectiveValue),
+    hasStoredValue: Boolean(storedValue),
+    hasEnvValue: Boolean(envValue),
+    preview: credentialPreview(effectiveValue),
+    source,
+  };
+}
+
+function redactedPaddleSettings(row: PaddleSettingsRow) {
+  return {
+    apiKey: credentialStatus(row.apiKey || '', config.paddleApiKey || ''),
+    clientToken: credentialStatus(row.clientToken || '', config.paddleClientToken || ''),
+    webhookSecret: credentialStatus(row.webhookSecret || '', config.paddleWebhookSecret || ''),
+    updatedAt: row.updatedAt,
+  };
+}
+
+async function paddleSettingsRow() {
+  const sql = db();
+  const row = await one<PaddleSettingsRow>(sql`
+    select
+      api_key as "apiKey",
+      client_token as "clientToken",
+      webhook_secret as "webhookSecret",
+      updated_at as "updatedAt"
+    from paddle_settings
+    where id = true
+    limit 1
+  `);
+  if (row) return row;
+  const inserted = await one<PaddleSettingsRow>(sql`
+    insert into paddle_settings (id)
+    values (true)
+    on conflict (id) do update set updated_at = paddle_settings.updated_at
+    returning
+      api_key as "apiKey",
+      client_token as "clientToken",
+      webhook_secret as "webhookSecret",
+      updated_at as "updatedAt"
+  `);
+  if (!inserted) fail(500, 'paddle_settings_missing', 'Paddle settings are not available.');
+  return inserted;
+}
+
+async function effectivePaddleApiKey() {
+  const settings = await paddleSettingsRow();
+  return settings.apiKey || config.paddleApiKey;
+}
+
+async function effectivePaddleClientToken() {
+  const settings = await paddleSettingsRow();
+  return settings.clientToken || config.paddleClientToken;
+}
+
+async function effectivePaddleWebhookSecret() {
+  const settings = await paddleSettingsRow();
+  return settings.webhookSecret || config.paddleWebhookSecret;
+}
+
+async function requirePaddleApiKey() {
+  const apiKey = await effectivePaddleApiKey();
+  if (!apiKey) {
+    fail(501, 'paddle_not_configured', 'Paddle API key is not configured.');
+  }
+  return apiKey;
+}
+
+async function requirePaddleClientToken() {
+  const clientToken = await effectivePaddleClientToken();
+  if (!clientToken) {
     fail(501, 'paddle_not_configured', 'Paddle client token is not configured.');
   }
-  return config.paddleClientToken;
+  return clientToken;
+}
+
+async function requirePaddleWebhookSecret() {
+  const webhookSecret = await effectivePaddleWebhookSecret();
+  if (!webhookSecret) {
+    fail(501, 'paddle_webhook_not_configured', 'Paddle webhook secret is not configured.');
+  }
+  return webhookSecret;
 }
 
 function cleanCode(value?: string) {
@@ -93,7 +192,7 @@ async function paddleFetch(path: string, init: RequestInit = {}) {
   const response = await fetch(`${paddleApiBase}${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${requirePaddleApiKey()}`,
+      Authorization: `Bearer ${await requirePaddleApiKey()}`,
       'Content-Type': 'application/json',
       ...(init.headers || {}),
     },
@@ -103,6 +202,77 @@ async function paddleFetch(path: string, init: RequestInit = {}) {
     fail(response.status, 'paddle_request_failed', payload?.error?.detail || payload?.error?.message || 'Paddle request failed.');
   }
   return payload;
+}
+
+export async function getPaddleSettings() {
+  return redactedPaddleSettings(await paddleSettingsRow());
+}
+
+export async function updatePaddleSettings(actor: Actor, input: PaddleSettingsInput) {
+  const hasApiKeyInput = Object.prototype.hasOwnProperty.call(input, 'apiKey');
+  const hasClientTokenInput = Object.prototype.hasOwnProperty.call(input, 'clientToken');
+  const hasWebhookSecretInput = Object.prototype.hasOwnProperty.call(input, 'webhookSecret');
+  const clearApiKey = Boolean(input.clearApiKey);
+  const clearClientToken = Boolean(input.clearClientToken);
+  const clearWebhookSecret = Boolean(input.clearWebhookSecret);
+  const apiKey = hasApiKeyInput ? cleanText(input.apiKey || '') : '';
+  const clientToken = hasClientTokenInput ? cleanText(input.clientToken || '') : '';
+  const webhookSecret = hasWebhookSecretInput ? cleanText(input.webhookSecret || '') : '';
+
+  if (hasApiKeyInput && !clearApiKey && !apiKey) {
+    fail(400, 'invalid_paddle_api_key', 'Paddle API key cannot be empty.');
+  }
+  if (hasClientTokenInput && !clearClientToken && !clientToken) {
+    fail(400, 'invalid_paddle_client_token', 'Paddle client token cannot be empty.');
+  }
+  if (clientToken && !/^(test|live)_/.test(clientToken)) {
+    fail(400, 'invalid_paddle_client_token', 'Paddle client token must start with test_ or live_.');
+  }
+  if (hasWebhookSecretInput && !clearWebhookSecret && !webhookSecret) {
+    fail(400, 'invalid_paddle_webhook_secret', 'Paddle webhook secret cannot be empty.');
+  }
+
+  const sql = db();
+  const row = await one<PaddleSettingsRow>(sql`
+    update paddle_settings
+    set
+      api_key = case
+        when ${clearApiKey} then ''
+        when ${hasApiKeyInput} then ${apiKey}
+        else api_key
+      end,
+      client_token = case
+        when ${clearClientToken} then ''
+        when ${hasClientTokenInput} then ${clientToken}
+        else client_token
+      end,
+      webhook_secret = case
+        when ${clearWebhookSecret} then ''
+        when ${hasWebhookSecretInput} then ${webhookSecret}
+        else webhook_secret
+      end,
+      updated_by = ${actor.id},
+      updated_at = now()
+    where id = true
+    returning
+      api_key as "apiKey",
+      client_token as "clientToken",
+      webhook_secret as "webhookSecret",
+      updated_at as "updatedAt"
+  `);
+  if (!row) fail(500, 'paddle_settings_update_failed', 'Could not update Paddle settings.');
+  await audit(actor, 'paddle.settings.update', 'paddle_settings', 'credentials', {
+    apiKeyChanged: hasApiKeyInput && !clearApiKey,
+    apiKeyCleared: clearApiKey,
+    clientTokenChanged: hasClientTokenInput && !clearClientToken,
+    clientTokenCleared: clearClientToken,
+    webhookSecretChanged: hasWebhookSecretInput && !clearWebhookSecret,
+    webhookSecretCleared: clearWebhookSecret,
+    envApiKeyAvailable: Boolean(config.paddleApiKey),
+    envClientTokenAvailable: Boolean(config.paddleClientToken),
+    envWebhookSecretAvailable: Boolean(config.paddleWebhookSecret),
+  });
+  return redactedPaddleSettings(row);
 }
 
 export async function getPaddleCheckoutConfig(actor: Actor, input: { tierCode?: string; promotionCode?: string }) {
@@ -146,7 +316,7 @@ export async function getPaddleCheckoutConfig(actor: Actor, input: { tierCode?: 
 
   return {
     environment: config.paddleEnv,
-    clientToken: requirePaddleClientToken(),
+    clientToken: await requirePaddleClientToken(),
     priceId: tier.paddlePriceId,
     tierCode: tier.code,
     tierName: tier.name,
@@ -181,9 +351,7 @@ export async function createCustomerPortalSession(actor: Actor) {
 }
 
 export async function verifyPaddleWebhook(rawBody: string, signatureHeader: string | null) {
-  if (!config.paddleWebhookSecret) {
-    fail(501, 'paddle_webhook_not_configured', 'Paddle webhook secret is not configured.');
-  }
+  const webhookSecret = await requirePaddleWebhookSecret();
   if (!signatureHeader) fail(401, 'missing_paddle_signature', 'Missing Paddle signature.');
   const { timestamp, signature } = parseSignatureHeader(signatureHeader);
   if (!timestamp || !signature) fail(401, 'invalid_paddle_signature', 'Invalid Paddle signature.');
@@ -195,7 +363,7 @@ export async function verifyPaddleWebhook(rawBody: string, signatureHeader: stri
     fail(401, 'stale_paddle_signature', 'Paddle webhook signature is too old.');
   }
 
-  const expected = await hmacSha256Hex(config.paddleWebhookSecret, `${timestamp}:${rawBody}`);
+  const expected = await hmacSha256Hex(webhookSecret, `${timestamp}:${rawBody}`);
   if (!timingSafeEqual(expected, signature)) {
     fail(401, 'invalid_paddle_signature', 'Invalid Paddle signature.');
   }

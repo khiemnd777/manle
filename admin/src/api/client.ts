@@ -128,6 +128,21 @@ export type EmailSettings = {
   updatedAt: string;
 };
 
+export type PaddleCredentialStatus = {
+  hasValue: boolean;
+  hasStoredValue: boolean;
+  hasEnvValue: boolean;
+  preview: string | null;
+  source: 'admin' | 'env' | 'none';
+};
+
+export type PaddleSettings = {
+  apiKey: PaddleCredentialStatus;
+  clientToken: PaddleCredentialStatus;
+  webhookSecret: PaddleCredentialStatus;
+  updatedAt: string;
+};
+
 export type EmailVariable = {
   text: string;
   label: string;
@@ -261,6 +276,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  paddleSettings: () => apiFetch<{ settings: PaddleSettings }>('/api/admin/paddle/settings'),
+  updatePaddleSettings: (body: {
+    apiKey?: string;
+    clientToken?: string;
+    webhookSecret?: string;
+    clearApiKey?: boolean;
+    clearClientToken?: boolean;
+    clearWebhookSecret?: boolean;
+  }) =>
+    apiFetch<{ settings: PaddleSettings }>('/api/admin/paddle/settings', { method: 'PATCH', body: JSON.stringify(body) }),
   emailSettings: () => apiFetch<{ settings: EmailSettings }>('/api/admin/email/settings'),
   updateEmailSettings: (body: Partial<EmailSettings> & { resendApiKey?: string }) =>
     apiFetch<{ settings: EmailSettings }>('/api/admin/email/settings', { method: 'PATCH', body: JSON.stringify(body) }),

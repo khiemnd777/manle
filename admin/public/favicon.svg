@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <style>
+    text {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, Arial, Helvetica, sans-serif;
+      letter-spacing: 0;
+    }
+  </style>
+  <rect width="512" height="512" rx="112" fill="#1d1548"/>
+  <text x="256" y="356" text-anchor="middle" font-size="352" font-weight="900" fill="#f5b840">M</text>
+</svg>

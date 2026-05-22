@@ -32,6 +32,11 @@ export const viewMeta: Record<View, { label: string; icon: IconName; description
     icon: 'entitlements',
     description: 'Control feature access resolved server-side from customer tier state.',
   },
+  paddle: {
+    label: 'Paddle Settings',
+    icon: 'key',
+    description: 'Manage backend Paddle API credentials.',
+  },
   emails: {
     label: 'Email Templates',
     icon: 'emails',
@@ -49,7 +54,7 @@ export const viewMeta: Record<View, { label: string; icon: IconName; description
   },
 };
 
-export const adminNavItems: View[] = ['users', 'customers', 'subscriptions', 'promotions', 'tiers', 'entitlements', 'emails', 'audit'];
+export const adminNavItems: View[] = ['users', 'customers', 'subscriptions', 'promotions', 'tiers', 'entitlements', 'paddle', 'emails', 'audit'];
 
 export const emptyData: AdminData = {
   overview: { systemUsers: 0, customers: 0, activeSubscriptions: 0, activePromotions: 0, activeTiers: 0 },
@@ -60,6 +65,7 @@ export const emptyData: AdminData = {
   tiers: [],
   entitlementDefinitions: [],
   entitlementGrants: [],
+  paddleSettings: null,
   emailSettings: null,
   emailTemplates: [],
   auditLogs: [],

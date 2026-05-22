@@ -13,6 +13,7 @@ import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import LayersOutlinedIcon from '@mui/icons-material/LayersOutlined';
 import LocalOfferOutlinedIcon from '@mui/icons-material/LocalOfferOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -46,6 +47,7 @@ export type IconName =
   | 'listOrdered'
   | 'logout'
   | 'mail'
+  | 'key'
   | 'plus'
   | 'profile'
   | 'promotions'
@@ -81,6 +83,7 @@ const icons: Record<IconName, typeof AddIcon> = {
   listOrdered: FormatListNumberedIcon,
   logout: LogoutIcon,
   mail: MailOutlinedIcon,
+  key: KeyOutlinedIcon,
   plus: AddIcon,
   profile: PersonOutlinedIcon,
   promotions: LocalOfferOutlinedIcon,

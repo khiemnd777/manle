@@ -62,7 +62,14 @@ import {
   updateEmailSettings,
   upsertEmailTemplate,
 } from './services/email';
-import { getPaddleCheckoutConfig, createCustomerPortalSession, handlePaddleWebhook, syncPaddleSubscription } from './services/paddle';
+import {
+  getPaddleCheckoutConfig,
+  createCustomerPortalSession,
+  getPaddleSettings,
+  handlePaddleWebhook,
+  syncPaddleSubscription,
+  updatePaddleSettings,
+} from './services/paddle';
 import { rateLimit } from './services/redis';
 
 function pathParts(url: URL) {
@@ -360,6 +367,14 @@ async function route(request: Request) {
 
   if (request.method === 'POST' && url.pathname === '/api/admin/paddle/sync') {
     return json(request, await syncPaddleSubscription(actor, await readJson(request)));
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/admin/paddle/settings') {
+    return json(request, { settings: await getPaddleSettings() });
+  }
+
+  if (request.method === 'PATCH' && url.pathname === '/api/admin/paddle/settings') {
+    return json(request, { settings: await updatePaddleSettings(actor, await readJson(request)) });
   }
 
   if (request.method === 'GET' && url.pathname === '/api/admin/customers') {

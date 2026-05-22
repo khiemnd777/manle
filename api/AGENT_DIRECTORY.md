@@ -20,6 +20,7 @@ and response shape are all visible in that file.
 | current account state, `/api/me`, quota display | `src/services/entitlements.ts` | `src/services/admin.ts`, `../fe/src/account.ts` | `accountEntitlements`, `effectiveEntitlementsForUser`, `quota`, `requiresLogin` |
 | export quota, PDF/PNG/JPG authorization | `src/services/entitlements.ts` | `db/migrations/001_admin_billing.sql`, `../fe/src/exportCard.ts` | `authorizeExport`, `export_usage`, `exports_per_day`, `export_quota_exceeded` |
 | Paddle checkout, customer portal | `src/services/paddle.ts` | `src/config.ts`, `../fe/src/account.ts` | `getPaddleCheckoutConfig`, `createCustomerPortalSession`, `paddle_price_id`, `promotionCode`, `customer-portal` |
+| Paddle credentials admin setting | `src/services/paddle.ts`, `src/index.ts` | `db/migrations/010_paddle_settings.sql`, `db/migrations/011_paddle_settings_tokens.sql`, `../admin/src/views/PaddleSettingsView.tsx` | `getPaddleSettings`, `updatePaddleSettings`, `paddle_settings`, `/api/admin/paddle/settings` |
 | Paddle webhook, subscription sync, duplicate events | `src/services/paddle.ts` | `db/migrations/001_admin_billing.sql`, `src/services/admin.ts` | `verifyPaddleWebhook`, `handlePaddleWebhook`, `paddle_events`, `upsertPaddleSubscription`, `subscription.created` |
 | admin customers, subscriptions, promotions, price tiers, entitlements, audit | `src/services/admin.ts` | `src/types/admin.ts`, `../admin/src/App.tsx` | `listCustomers`, `createCustomer`, `updateSubscription`, `upsertPriceTier`, `updateTierEntitlement`, `auditLogs` |
 | system users, admin/normal user role, reset password | `src/services/admin.ts`, `src/index.ts` | `src/services/auth.ts`, `../admin/src/App.tsx` | `listSystemUsers`, `createSystemUser`, `updateSystemUser`, `/api/admin/system-users`, `role in ('admin', 'user')` |
@@ -79,6 +80,8 @@ before reaching these data-management branches.
 | `POST /api/admin/system-users` | `createSystemUser` | Creates an internal account with role `admin` or `user`; audits `system_user.create`. |
 | `GET /api/admin/system-users/:id` | `getSystemUser` | Returns internal user detail. |
 | `PATCH /api/admin/system-users/:id` | `updateSystemUser` | Updates name/email/role/status/password; audits `system_user.update`. |
+| `GET /api/admin/paddle/settings` | `getPaddleSettings` | Returns redacted Paddle API key, client token, and webhook secret status/source. |
+| `PATCH /api/admin/paddle/settings` | `updatePaddleSettings` | Updates or clears admin-stored Paddle credentials; audits `paddle.settings.update`. |
 | `POST /api/admin/paddle/sync` | `syncPaddleSubscription` | Sync by Paddle subscription ID or customer ID; audits action. |
 | `GET /api/admin/customers?search=` | `listCustomers` | Returns up to 200 customers with current tier, exports today, latest subscription status/tier. |
 | `POST /api/admin/customers` | `createCustomer` | Creates customer without password; audits `customer.create`. |
@@ -133,6 +136,7 @@ before reaching these data-management branches.
 
 `src/services/paddle.ts`:
 
+- Settings: `getPaddleSettings`, `updatePaddleSettings`, admin-stored API key/client token/webhook secret with env fallback.
 - Config guards: `requirePaddleApiKey`, `requirePaddleClientToken`.
 - API wrapper: `paddleFetch`.
 - Checkout: `getPaddleCheckoutConfig`.
@@ -165,10 +169,16 @@ Migrations:
 - `db/migrations/004_price_tier_benefit_editor_flag.sql`
 - `db/migrations/005_price_tier_pricing_badge.sql`
 - `db/migrations/006_system_user_role.sql`
+- `db/migrations/007_email_templates.sql`
+- `db/migrations/008_oauth_accounts.sql`
+- `db/migrations/009_custom_template_entitlement.sql`
+- `db/migrations/010_paddle_settings.sql`
+- `db/migrations/011_paddle_settings_tokens.sql`
 
 Tables:
 
 - `price_tiers`: tier code/name/monthly price/Paddle price/export limit/watermark/branding/style/active/sort order.
+- `paddle_settings`: singleton admin-stored Paddle credential overrides.
 - `users`: email/name/password hash/role/status/current tier/Paddle customer ID/notes. Roles are `customer`, `admin`, and internal normal `user`.
 - `sessions`: access token hashes and expiry.
 - `refresh_tokens`: refresh token hashes, family rotation, revoked/replaced tracking.

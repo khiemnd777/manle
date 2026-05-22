@@ -21,6 +21,7 @@ const SubscriptionsView = lazy(() => import('./views/SubscriptionsView'));
 const PromotionsView = lazy(() => import('./views/PromotionsView'));
 const TiersView = lazy(() => import('./views/TiersView'));
 const EntitlementsView = lazy(() => import('./views/EntitlementsView'));
+const PaddleSettingsView = lazy(() => import('./views/PaddleSettingsView'));
 const EmailsView = lazy(() => import('./views/EmailsView'));
 const AuditView = lazy(() => import('./views/AuditView'));
 const ProfileView = lazy(() => import('./views/ProfileView'));
@@ -303,7 +304,7 @@ function AdminShell({
       return;
     }
     try {
-      const [overview, systemUsers, customers, subscriptions, promotions, tiers, entitlements, emailSettings, emailTemplates, audit] = await Promise.all([
+      const [overview, systemUsers, customers, subscriptions, promotions, tiers, entitlements, paddleSettings, emailSettings, emailTemplates, audit] = await Promise.all([
         api.overview(),
         api.systemUsers(systemUserSearch),
         api.customers(customerSearch),
@@ -311,6 +312,7 @@ function AdminShell({
         api.promotions(),
         api.priceTiers(),
         api.entitlements(),
+        api.paddleSettings(),
         api.emailSettings(),
         api.emailTemplates(),
         api.audit(),
@@ -324,6 +326,7 @@ function AdminShell({
         tiers: tiers.tiers,
         entitlementDefinitions: entitlements.definitions,
         entitlementGrants: entitlements.grants,
+        paddleSettings: paddleSettings.settings,
         emailSettings: emailSettings.settings,
         emailTemplates: emailTemplates.templates,
         auditLogs: audit.logs,
@@ -418,6 +421,7 @@ function AdminShell({
               {view === 'promotions' && isAdmin && <PromotionsView data={data} reload={loadAll} />}
               {view === 'tiers' && isAdmin && <TiersView data={data} reload={loadAll} />}
               {view === 'entitlements' && isAdmin && <EntitlementsView data={data} reload={loadAll} />}
+              {view === 'paddle' && isAdmin && <PaddleSettingsView data={data} reload={loadAll} />}
               {view === 'emails' && isAdmin && <EmailsView data={data} reload={loadAll} />}
               {view === 'audit' && isAdmin && <AuditView logs={data.auditLogs} />}
               {view === 'profile' && <ProfileView actor={actor} onActorChange={onActorChange} />}

@@ -320,17 +320,19 @@ export function setTab(tabName) {
   scheduleSaveCallback();
 }
 
-/* Copy the embedded base64 logos from the IUL card into the Term Life
-   card on init — avoids duplicating ~100KB of base64 in the HTML source. */
+/* Copy the IUL card logos into the Term Life card on init so the two
+   products keep the same default branding without duplicating assets. */
 export function cloneLogos() {
-  const taSrc = document.querySelector('#cardOut .ta-pill img');
-  const fwSrc = document.querySelector('#cardOut .footer-logo img');
+  const taSrc = document.querySelector<HTMLImageElement>('#cardOut .ta-pill img');
+  const footerLogoSrc = document.querySelector<HTMLImageElement>('#cardOut .footer-logo img');
   if (taSrc && taSrc.src) {
-    document.querySelectorAll('.ta-logo-clone').forEach(img => {
+    document.querySelectorAll<HTMLImageElement>('.ta-logo-clone').forEach(img => {
       if (!img.getAttribute('src')) img.src = taSrc.src;
     });
   }
-  if (fwSrc && fwSrc.src) {
-    document.querySelectorAll('.fiveways-logo-clone').forEach(img => img.src = fwSrc.src);
+  if (footerLogoSrc && footerLogoSrc.src) {
+    document.querySelectorAll<HTMLImageElement>('.footer-logo-clone').forEach(img => {
+      img.src = footerLogoSrc.src;
+    });
   }
 }
