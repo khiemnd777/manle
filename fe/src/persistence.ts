@@ -11,6 +11,23 @@ import { loadStyleState, saveStyleState } from './styleEditor';
    =============================================================== */
 export const STORAGE_KEY = '5ways_iul_v9_state';
 
+function migrateLegacyDefaultNames(data: any) {
+  if (!data || typeof data !== 'object') return;
+
+  const form = data.form;
+  if (form && form.firstName === 'Vinh Duong' && form.lastName === 'Cam') {
+    form.firstName = 'An D.';
+    form.lastName = 'Nguyen';
+  }
+
+  if (!Array.isArray(data.agents)) return;
+  data.agents.forEach((agent: any) => {
+    if (!agent || agent.name !== 'Ruby Le') return;
+    if (String(agent.phone || '').trim()) return;
+    agent.name = 'Kevin Le';
+  });
+}
+
 function isEditingLivingBenefit() {
   const active = document.activeElement;
   return active instanceof Element && Boolean(active.closest('.living-title, .living-list'));
@@ -114,6 +131,7 @@ export function loadState() {
     if (!raw) return false;
     const data = JSON.parse(raw);
     if (!data || !data.form) return false;
+    migrateLegacyDefaultNames(data);
 
     // Restore tab choice
     if (data.currentTab === 'iul' || data.currentTab === 'term') {

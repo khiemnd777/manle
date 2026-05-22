@@ -33,9 +33,9 @@ export function normalizeState(raw) {
 }
 
 // Parse filename for quick fields, e.g.:
-//   "Vinh Duong Cam - $500,000 - $300 - 20Y - Preferred Elite.pdf"
+//   "An D. Nguyen - $500,000 - $300 - 20Y - Preferred Elite.pdf"
 //   "Christine Nguyen - $219,000 - $150 - 20Y.pdf"
-//   "Vinh_Duong_Cam_-_FA_500K_-_300mo_-_20Y_-_Preferred_Elite.pdf"
+//   "An_D_Nguyen_-_FA_500K_-_300mo_-_20Y_-_Preferred_Elite.pdf"
 export function parseFilename(filename) {
   const out: any = {};
   // Strip extension, normalize underscores → spaces, collapse multi-space

@@ -6,7 +6,7 @@ export const state = {
   actualPVMap: null,      // Map<age, policyValue>
   actualDBMap: null,      // Map<age, deathBenefit>
   agents: [               // List of agents shown in footer (shared by both cards)
-    { name: 'Ruby Le', phone: '' }
+    { name: 'Kevin Le', phone: '' }
   ],
   livingBenefitColumns: {
     iul: [['iul_lc_chronic', 'iul_lc_terminal'], ['iul_lc_critical']],
