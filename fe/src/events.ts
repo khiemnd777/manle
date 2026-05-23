@@ -3,20 +3,26 @@ import { refreshCustomDropdowns } from './customDropdown';
 import { exportCardImage } from './exportCard';
 import { bindLivingBenefitColumnEditors } from './livingBenefitColumns';
 import { repairAllLivingBenefitFormats } from './livingBenefitFormat';
-import { saveState, STORAGE_KEY } from './persistence';
-import { render, renderAgeList, renderAgentList, setTab } from './render';
+import { disableStatePersistence, saveState, STORAGE_KEY } from './persistence';
+import { formatPhone, render, renderAgeList, renderAgentList, setTab } from './render';
 
 /* ===================== EVENTS ===================== */
 export function bindAll() {
   const ids = ['firstName','lastName','age','gender','state','riskClass',
                'faceAmount','monthlyPrem','premYears','rate','dragTune',
-               'agentFirm','termLength','termFaceAmount','termMonthlyPrem'];
+               'agentFirm','officeName','officePhone','officeWebsite',
+               'termLength','termFaceAmount','termMonthlyPrem'];
   // Fields that, when manually changed, invalidate cached PDF values
   const policyFields = new Set(['faceAmount','monthlyPrem','premYears','age','gender']);
   ids.forEach(id => {
     const el = $(id);
     if (!el) return;
     const isCurrencyField = CURRENCY_FIELD_IDS.includes(id as any);
+    const isPhoneField = id === 'officePhone';
+    const formatPhoneField = () => {
+      if (!isPhoneField) return;
+      el.value = formatPhone(el.value);
+    };
     const handler = () => {
       // If user manually edits a policy parameter, drop the PDF cache —
       // the cached values were calibrated to the original PDF inputs
@@ -27,10 +33,12 @@ export function bindAll() {
     };
     el.addEventListener('input', () => {
       if (isCurrencyField) formatCurrencyField(id);
+      formatPhoneField();
       handler();
     });
     el.addEventListener('change', () => {
       if (isCurrencyField) formatCurrencyField(id);
+      formatPhoneField();
       handler();
     });
     if (isCurrencyField) {
@@ -41,6 +49,8 @@ export function bindAll() {
     }
   });
   formatCurrencyFields();
+  const officePhone = $('officePhone');
+  if (officePhone) officePhone.value = formatPhone(officePhone.value);
 
   // Tab switcher buttons
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -120,6 +130,7 @@ export function bindAll() {
 
   $('resetBtn').addEventListener('click', () => {
     if (!confirm('Reset toàn bộ về mặc định?\n(Bản ghi đã lưu cũng sẽ bị xoá)')) return;
+    disableStatePersistence();
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
     location.reload();
   });

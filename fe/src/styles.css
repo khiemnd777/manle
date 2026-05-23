@@ -2823,7 +2823,14 @@
     display: flex;
     align-items: center;
   }
-  .footer-logo img { height: 80px; width: auto; display: block; }
+  .footer-logo img {
+    height: 80px;
+    width: auto;
+    max-width: 100%;
+    display: block;
+    object-fit: contain;
+    cursor: pointer;
+  }
   /* Cột 2: Agent — canh giữa, có border-right */
   .footer-col-agent {
     padding: 8px 20px;
@@ -2864,6 +2871,8 @@
     font-weight: 800;
     color: var(--gold-bright);
     letter-spacing: .04em;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
   .footer-col-office .office-phone,
   .footer-col-office .office-web {
@@ -2873,6 +2882,12 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    max-width: 100%;
+  }
+  .footer-col-office .office-phone span:last-child,
+  .footer-col-office .office-web span:last-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   /* Dòng 2: Disclaimer – span 3 cột, canh giữa */
   .footer-disc-row {

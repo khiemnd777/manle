@@ -33,6 +33,7 @@ const CONFIG: Record<ProductTab, {
 
 let scheduleSaveCallback = () => {};
 const defaultHeaderState: Partial<Record<ProductTab, HeaderState>> = {};
+let defaultFooterLogo = '';
 
 export function setHeaderEditorSaveScheduler(fn: () => void) {
   scheduleSaveCallback = fn;
@@ -79,6 +80,23 @@ function logoPreviewFor(product: ProductTab) {
   return $(CONFIG[product].logoPreviewId) as HTMLImageElement | null;
 }
 
+function footerLogoInput() {
+  return $('footerLogoInput') as HTMLInputElement | null;
+}
+
+function footerLogoPreview() {
+  return $('footerLogoEditorPreview') as HTMLImageElement | null;
+}
+
+function footerLogoImages() {
+  return Array.from(document.querySelectorAll<HTMLImageElement>('#cardOut .footer-logo img, #cardOutTerm .footer-logo img'));
+}
+
+function captureFooterLogo() {
+  const logo = footerLogoImages().find(img => img.getAttribute('src') || img.src);
+  return logo?.getAttribute('src') || logo?.src || '';
+}
+
 function textFromTitle(title: HTMLElement) {
   return (title.innerText || title.textContent || '')
     .replace(/\u00a0/g, ' ')
@@ -108,6 +126,7 @@ export function captureHeaderDefaults() {
   (['iul', 'term'] as ProductTab[]).forEach(product => {
     defaultHeaderState[product] = captureProductHeader(product);
   });
+  defaultFooterLogo = captureFooterLogo();
 }
 
 function restoreProductDefault(product: ProductTab, options: { save?: boolean } = {}) {
@@ -128,6 +147,12 @@ function restoreProductDefault(product: ProductTab, options: { save?: boolean } 
 
 export function resetHeaderCustomizations(options: { save?: boolean } = {}) {
   (['iul', 'term'] as ProductTab[]).forEach(product => restoreProductDefault(product, options));
+  restoreFooterLogoDefault(options);
+}
+
+function restoreFooterLogoDefault(options: { save?: boolean } = {}) {
+  if (!defaultFooterLogo) return;
+  setFooterLogo(defaultFooterLogo, { save: options.save ?? false, allowLocked: true });
 }
 
 function syncHeaderLockState() {
@@ -145,6 +170,11 @@ function syncHeaderLockState() {
     }
     if (entitlementsLoaded() && !editable) restoreProductDefault(product, { save: false });
   });
+  footerLogoImages().forEach(logo => {
+    logo.classList.toggle('entitlement-locked', !editable);
+    logo.title = editable ? 'Click để đổi footer logo' : 'Upgrade tier to unlock logo editing';
+  });
+  if (entitlementsLoaded() && !editable) restoreFooterLogoDefault({ save: false });
 }
 
 export function syncHeaderEntitlementState() {
@@ -200,6 +230,21 @@ export function setHeaderLogo(product: ProductTab, dataUrl: string, options: { s
   if (options.save ?? true) scheduleSaveCallback();
 }
 
+export function setFooterLogo(dataUrl: string, options: { save?: boolean; allowLocked?: boolean } = {}) {
+  if (!options.allowLocked && entitlementsLoaded() && !canEditHeader()) {
+    restoreFooterLogoDefault({ save: false });
+    return;
+  }
+
+  if (!dataUrl) return;
+  footerLogoImages().forEach(logo => {
+    logo.src = dataUrl;
+  });
+  const preview = footerLogoPreview();
+  if (preview) preview.src = dataUrl;
+  if (options.save ?? true) scheduleSaveCallback();
+}
+
 function syncLogoPreview(product: ProductTab) {
   const logo = logoFor(product);
   const preview = logoPreviewFor(product);
@@ -211,6 +256,15 @@ function readLogoFile(product: ProductTab, file: File | null | undefined) {
   const reader = new FileReader();
   reader.onload = () => {
     if (typeof reader.result === 'string') setHeaderLogo(product, reader.result);
+  };
+  reader.readAsDataURL(file);
+}
+
+function readFooterLogoFile(file: File | null | undefined) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    if (typeof reader.result === 'string') setFooterLogo(reader.result);
   };
   reader.readAsDataURL(file);
 }
@@ -314,9 +368,51 @@ function bindProduct(product: ProductTab) {
   syncLogoPreview(product);
 }
 
+function syncFooterLogoPreview() {
+  const logo = captureFooterLogo();
+  const preview = footerLogoPreview();
+  if (logo && preview) preview.src = logo;
+}
+
+function bindFooterLogo() {
+  const input = footerLogoInput();
+  const uploadBtn = $('footerLogoUploadBtn') as HTMLButtonElement | null;
+
+  input?.addEventListener('change', async () => {
+    try {
+      if (await authorizeHeaderEdit()) readFooterLogoFile(input.files?.[0]);
+    } catch (error) {
+      handleHeaderAuthorizationError(error);
+    }
+    input.value = '';
+  });
+
+  uploadBtn?.addEventListener('click', () => {
+    authorizeHeaderEdit()
+      .then(allowed => {
+        if (allowed) input?.click();
+      })
+      .catch(handleHeaderAuthorizationError);
+  });
+
+  footerLogoImages().forEach(logo => {
+    logo.title = canEditHeader() ? 'Click để đổi footer logo' : 'Upgrade tier to unlock logo editing';
+    logo.addEventListener('click', () => {
+      authorizeHeaderEdit()
+        .then(allowed => {
+          if (allowed) input?.click();
+        })
+        .catch(handleHeaderAuthorizationError);
+    });
+  });
+
+  syncFooterLogoPreview();
+}
+
 export function bindHeaderEditor() {
   bindProduct('iul');
   bindProduct('term');
+  bindFooterLogo();
   window.addEventListener('manle:account-rendered', syncHeaderEntitlementState);
   syncHeaderEntitlementState();
 }
@@ -332,6 +428,9 @@ export function captureHeaderState() {
   return {
     iul: capture('iul'),
     term: capture('term'),
+    footerLogo: entitlementsLoaded() && !canEditHeader()
+      ? defaultFooterLogo || captureFooterLogo()
+      : captureFooterLogo(),
   };
 }
 
@@ -341,6 +440,7 @@ export function restoreHeaderState(data: any) {
     resetHeaderCustomizations({ save: false });
     return;
   }
+  if (data.footerLogo) setFooterLogo(data.footerLogo, { save: false });
 
   (['iul', 'term'] as ProductTab[]).forEach(product => {
     const item = data[product];

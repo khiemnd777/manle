@@ -457,6 +457,37 @@ Trendsetter® LB</textarea>
       <button class="inline-add-btn" type="button" id="addAgentBtn">+ Thêm Agent</button>
     </fieldset>
 
+    <fieldset>
+      <legend>Office Contact / Thông tin liên hệ</legend>
+      <div class="row full">
+        <div>
+          <label for="officeName">Office Name</label>
+          <input type="text" id="officeName" value="MANLE INSURANCE" placeholder="VD: MANLE INSURANCE">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="officePhone">Office Phone</label>
+          <input type="tel" id="officePhone" value="(904) 750-4572" placeholder="(xxx) xxx-xxxx" inputmode="numeric" maxlength="14">
+        </div>
+        <div>
+          <label for="officeWebsite">Website</label>
+          <input type="text" id="officeWebsite" value="manle.info" placeholder="manle.info">
+        </div>
+      </div>
+      <div class="header-editor-panel footer-logo-editor">
+        <label for="footerLogoInput">Footer Logo — shared</label>
+        <input type="file" id="footerLogoInput" class="header-logo-input" accept="image/*">
+        <button type="button" class="inline-add-btn header-logo-btn" id="footerLogoUploadBtn">
+          <span class="mui-icon" data-mui-icon="PhotoCamera" aria-hidden="true"></span>
+          Upload footer logo
+        </button>
+        <div class="header-logo-preview footer-logo-editor-preview">
+          <img id="footerLogoEditorPreview" alt="Footer logo preview">
+        </div>
+      </div>
+    </fieldset>
+
     <!-- Hidden cost calibration input (default 1.00 = matches Transamerica FFIUL II) -->
     <input type="hidden" id="dragTune" value="1.00">
 
@@ -861,7 +892,7 @@ Trendsetter® LB</textarea>
       <!-- FOOTER -->
       <footer class="card-footer">
         <div class="footer-logo"><span>
-          <img src="/manle-card-generator-card-logo.webp" alt="MANLE Card Generator" />
+          <img id="footerLogo" src="/manle-card-generator-card-logo.webp" alt="MANLE Card Generator" />
           </span></div>
         <!-- Cột 2: Agent info -->
         <div class="footer-col-agent">
@@ -869,9 +900,9 @@ Trendsetter® LB</textarea>
         </div>
         <!-- Cột 3: Office info -->
         <div class="footer-col-office">
-          <div class="office-name">MANLE INSURANCE</div>
-          <div class="office-phone"><span>🏢</span><span>(727) 946-5464</span></div>
-          <div class="office-web"><span>🌐</span><span>manle.info</span></div>
+          <div class="office-name" id="ftOfficeName">MANLE INSURANCE</div>
+          <div class="office-phone" id="ftOfficePhoneLine"><span>🏢</span><span id="ftOfficePhone">(904) 750-4572</span></div>
+          <div class="office-web" id="ftOfficeWebsiteLine"><span>🌐</span><span id="ftOfficeWebsite">manle.info</span></div>
         </div>
         <!-- Dòng 2: Disclaimer -->
         <div class="footer-disc-row">
@@ -1025,15 +1056,15 @@ Trendsetter® LB</textarea>
       <!-- FOOTER -->
       <footer class="card-footer">
         <div class="footer-logo"><span>
-          <img class="footer-logo-clone" alt="MANLE Card Generator" />
+          <img id="t_footerLogo" class="footer-logo-clone" alt="MANLE Card Generator" />
         </span></div>
         <div class="footer-col-agent">
           <div id="t_ftAgentList"></div>
         </div>
         <div class="footer-col-office">
-          <div class="office-name">MANLE INSURANCE</div>
-          <div class="office-phone"><span>🏢</span><span>(727) 946-5464</span></div>
-          <div class="office-web"><span>🌐</span><span>manle.info</span></div>
+          <div class="office-name" id="t_ftOfficeName">MANLE INSURANCE</div>
+          <div class="office-phone" id="t_ftOfficePhoneLine"><span>🏢</span><span id="t_ftOfficePhone">(904) 750-4572</span></div>
+          <div class="office-web" id="t_ftOfficeWebsiteLine"><span>🌐</span><span id="t_ftOfficeWebsite">manle.info</span></div>
         </div>
         <div class="footer-disc-row">
           <div class="agent-disc" id="t_ftDisc">

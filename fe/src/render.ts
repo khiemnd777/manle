@@ -100,6 +100,32 @@ export function renderAgentList() {
   });
 }
 
+function setTextAndVisibility(id, text) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+function setContactLine(lineId, textId, text) {
+  const line = $(lineId);
+  const textEl = $(textId);
+  if (!line || !textEl) return;
+  const value = text.trim();
+  textEl.textContent = value;
+  line.hidden = !value;
+}
+
+function renderOfficeContact(prefix = '') {
+  const officeName = ($('officeName')?.value || '').trim();
+  const officePhone = formatPhone($('officePhone')?.value || '').trim();
+  const officeWebsite = ($('officeWebsite')?.value || '').trim();
+
+  setTextAndVisibility(`${prefix}ftOfficeName`, officeName);
+  setContactLine(`${prefix}ftOfficePhoneLine`, `${prefix}ftOfficePhone`, officePhone);
+  setContactLine(`${prefix}ftOfficeWebsiteLine`, `${prefix}ftOfficeWebsite`, officeWebsite);
+}
+
 /* ===================== MAIN RENDER ===================== */
 export function render() {
   const first = $('firstName').value.trim();
@@ -206,6 +232,7 @@ export function render() {
     ftList.appendChild(block);
   });
   $('ftClient').textContent = fullName;
+  renderOfficeContact();
 
   const today = new Date();
   $('ftDate').textContent = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -288,6 +315,7 @@ export function renderTerm() {
     ftList.appendChild(block);
   });
   $('t_ftClient').textContent = fullName;
+  renderOfficeContact('t_');
 
   const today = new Date();
   $('t_ftDate').textContent = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });

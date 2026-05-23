@@ -10,6 +10,22 @@ import { loadStyleState, saveStyleState } from './styleEditor';
    right where they left off.
    =============================================================== */
 export const STORAGE_KEY = '5ways_iul_v9_state';
+const DEFAULT_OFFICE_PHONE = '(904) 750-4572';
+const LEGACY_DEFAULT_OFFICE_PHONE = '(727) 946-5464';
+let statePersistenceDisabled = false;
+let _saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function disableStatePersistence() {
+  statePersistenceDisabled = true;
+  if (_saveTimer) {
+    clearTimeout(_saveTimer);
+    _saveTimer = null;
+  }
+}
+
+function digitsOnly(value: unknown) {
+  return String(value == null ? '' : value).replace(/\D/g, '');
+}
 
 function migrateLegacyDefaultNames(data: any) {
   if (!data || typeof data !== 'object') return;
@@ -18,6 +34,9 @@ function migrateLegacyDefaultNames(data: any) {
   if (form && form.firstName === 'Vinh Duong' && form.lastName === 'Cam') {
     form.firstName = 'An D.';
     form.lastName = 'Nguyen';
+  }
+  if (form && digitsOnly(form.officePhone) === digitsOnly(LEGACY_DEFAULT_OFFICE_PHONE)) {
+    form.officePhone = DEFAULT_OFFICE_PHONE;
   }
 
   if (!Array.isArray(data.agents)) return;
@@ -46,6 +65,7 @@ function captureHiddenLivingCards() {
 }
 
 export function saveState(options: { repair?: boolean } = {}) {
+  if (statePersistenceDisabled) return;
   try {
     const shouldRepair = options.repair ?? !isEditingLivingBenefit();
     if (shouldRepair) repairAllLivingBenefitFormats();
@@ -87,6 +107,9 @@ export function saveState(options: { repair?: boolean } = {}) {
         rate:             $('rate').value,
         dragTune:         $('dragTune').value,
         agentFirm:        $('agentFirm').value,
+        officeName:       $('officeName')?.value,
+        officePhone:      $('officePhone')?.value,
+        officeWebsite:    $('officeWebsite')?.value,
         termLength:       $('termLength')?.value,
         termFaceAmount:   $('termFaceAmount')?.value,
         termMonthlyPrem:  $('termMonthlyPrem')?.value
@@ -223,9 +246,8 @@ export function loadState() {
   }
 }
 
-// Debounce so we don't slam localStorage on every keystroke
-let _saveTimer: ReturnType<typeof setTimeout> | null = null;
 export function scheduleSave() {
+  if (statePersistenceDisabled) return;
   if (_saveTimer) clearTimeout(_saveTimer);
   _saveTimer = setTimeout(saveState, 300);
 }

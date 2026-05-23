@@ -433,7 +433,7 @@ function renderAccount() {
   if (!hasActor) profileSection = 'account';
   setProfileSection(profileSection);
   setControlsLocked('#profileForm input, #profilePasswordForm input, #profileSaveBtn, #profilePasswordSaveBtn, #profileAccountTabBtn, #profilePasswordTabBtn, #profileBillingBtn', !hasActor);
-  setControlsLocked('.header-editor input, .header-editor textarea, .header-editor button', !branding);
+  setControlsLocked('.header-editor input, .header-editor textarea, .header-editor button, .footer-logo-editor input, .footer-logo-editor button', !branding);
   setControlsLocked('#styleEditor .style-editor-body input, #styleEditor .style-editor-body select, #styleEditor .style-editor-body button', !style);
   window.dispatchEvent(new CustomEvent('manle:account-rendered'));
 }
