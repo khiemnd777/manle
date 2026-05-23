@@ -5,9 +5,9 @@ import { saveState } from './persistence';
 /* ===================== MANUAL SAVE BUTTON =====================
    Auto-save still runs in the background (debounced 300ms), but the
    user gets a clear visual control:
-     - Idle:   neutral button "Lưu thay đổi"
+     - Idle:   neutral button "Save Changes"
      - Dirty:  pulsing gold button (there are unsaved edits)
-     - Saved:  green "Đã lưu" for 1.6s after click
+     - Saved:  green "Saved" for 1.6s after click
    Also bound to Ctrl+S / Cmd+S inside the card area.
 =============================================================== */
 export function bindManualSaveButton() {
@@ -19,17 +19,17 @@ export function bindManualSaveButton() {
   function markDirty() {
     btn.classList.remove('is-saved');
     btn.classList.add('is-dirty');
-    btn.innerHTML = `${muiIconSvg('Save')} Có thay đổi - Bấm để lưu`;
+    btn.innerHTML = `${muiIconSvg('Save')} Unsaved Changes - Click to Save`;
   }
 
   function markSaved() {
     btn.classList.remove('is-dirty');
     btn.classList.add('is-saved');
-    btn.innerHTML = `${muiIconSvg('CheckCircle')} Đã lưu`;
+    btn.innerHTML = `${muiIconSvg('CheckCircle')} Saved`;
     if (savedTimer) clearTimeout(savedTimer);
     savedTimer = setTimeout(() => {
       btn.classList.remove('is-saved');
-      btn.innerHTML = `${muiIconSvg('Save')} Lưu thay đổi`;
+      btn.innerHTML = `${muiIconSvg('Save')} Save Changes`;
     }, 1600);
   }
 

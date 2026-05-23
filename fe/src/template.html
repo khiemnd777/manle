@@ -359,7 +359,7 @@ Trendsetter® LB</textarea>
       </div>
       <div class="row">
         <div>
-          <label for="age">Age / Tuổi</label>
+          <label for="age">Age</label>
           <input type="number" id="age" value="32" min="0" max="100">
         </div>
         <div>
@@ -452,7 +452,7 @@ Trendsetter® LB</textarea>
           <input type="text" id="agentFirm" value="Agent Assistant" placeholder="VD: Agent Assistant">
         </div>
       </div>
-      <label style="margin-top:6px">Agents (Tên + Số điện thoại)</label>
+      <label style="margin-top:6px">Agents (Name + Phone)</label>
       <div id="agentList"></div>
       <button class="inline-add-btn" type="button" id="addAgentBtn">+ Thêm Agent</button>
     </fieldset>
@@ -495,7 +495,7 @@ Trendsetter® LB</textarea>
     <div class="lb-toggle-section iul-only" data-lb-product="iul">
       <div class="lb-toggle-title">
         <span class="mui-icon" data-mui-icon="Visibility" aria-hidden="true"></span>
-        Quản Lý Quyền Lợi 2 — IUL
+        Living Benefits / Quyền Lợi 2 — IUL
       </div>
       <div class="lb-column-actions">
         <button type="button" class="lb-column-action" data-lb-action="add-column" data-product="iul">+ Thêm cột</button>
@@ -507,7 +507,7 @@ Trendsetter® LB</textarea>
     <div class="lb-toggle-section term-only" data-lb-product="term">
       <div class="lb-toggle-title">
         <span class="mui-icon" data-mui-icon="Visibility" aria-hidden="true"></span>
-        Quản Lý Quyền Lợi 2 — Term Life
+        Living Benefits / Quyền Lợi 2 — Term Life
       </div>
       <div class="lb-column-actions">
         <button type="button" class="lb-column-action" data-lb-action="add-column" data-product="term">+ Thêm cột</button>
@@ -695,12 +695,12 @@ Trendsetter® LB</textarea>
     </div>
 
     <div class="save-row">
-      <button type="button" class="save-btn" id="saveBtn" title="Lưu lại các chỉnh sửa text trong card (Ctrl+S)">
+      <button type="button" class="save-btn" id="saveBtn" title="Save card text edits (Ctrl+S)">
         <span class="mui-icon" data-mui-icon="Save" aria-hidden="true"></span>
-        Lưu thay đổi
+        Save Changes
       </button>
       <div class="save-hint">
-        Bấm để cập nhật nội dung quyền lợi đã chỉnh sửa trong card.
+        Click to apply edited benefit text in the card.
       </div>
     </div>
 
@@ -724,7 +724,10 @@ Trendsetter® LB</textarea>
     </div>
     <div class="actions" style="margin-top:10px;">
       <button type="button" class="secondary" id="newClientBtn" title="Xoá thông tin khách hàng để nhập khách mới (giữ lại agent)">+ New Client</button>
-      <button type="button" class="secondary" id="resetBtn" title="Reset toàn bộ về mặc định (cả agent)">Reset</button>
+      <button type="button" class="secondary" id="resetBtn" title="Reset toàn bộ về mặc định (cả agent)">
+        <span class="mui-icon" data-mui-icon="Refresh" aria-hidden="true"></span>
+        Reset
+      </button>
     </div>
   </aside>
 

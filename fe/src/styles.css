@@ -1969,6 +1969,10 @@
     text-transform: uppercase;
     cursor: pointer;
     border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     transition: background .15s, transform .05s;
   }
   .form-pane .actions button:hover,
@@ -1981,6 +1985,29 @@
     color: #d6d2eb;
   }
   .form-pane .actions button.secondary:hover { background: #14103a; border-color: var(--gold-bright); }
+  .form-pane .actions #newClientBtn {
+    background: var(--gold);
+    border: 1px solid var(--gold);
+    color: var(--navy-deep);
+  }
+  .form-pane .actions #newClientBtn:hover {
+    background: var(--gold-bright);
+    border-color: var(--gold-bright);
+  }
+  .form-pane .actions #resetBtn {
+    background: #2a1430;
+    border: 1px solid #ff7575;
+    color: #ffb3b3;
+  }
+  .form-pane .actions #resetBtn:hover {
+    background: #3a172e;
+    border-color: #ff9a9a;
+    color: #fff0f0;
+  }
+  .form-pane .actions .mui-icon {
+    width: 14px;
+    height: 14px;
+  }
 
   .inline-add-btn {
     background: transparent;
