@@ -26,6 +26,7 @@ response types live in `src/api/client.ts`.
 | price tiers, export limits, watermark, branding, style flag, Paddle price ID | `src/views/TiersView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts`, `../api/db/migrations/001_admin_billing.sql` | `TiersView`, `savePriceTier`, `updatePriceTier`, `exportLimitPerDay`, `watermarkEnabled`, `paddlePriceId` |
 | entitlements matrix | `src/views/EntitlementsView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `EntitlementsView`, `grantMap`, `updateTierEntitlement`, `EntitlementDefinition`, `EntitlementGrant` |
 | email settings and templates | `src/views/EmailsView.tsx` | `src/RichTextEditor.tsx`, `src/api/client.ts`, `../api/src/services/admin.ts` | `EmailsView`, `emailSettings`, `emailTemplates`, `updateEmailSettings`, `createEmailTemplate`, `RichTextEditor` |
+| illustration profiles, training, mapping proposals | `src/views/IllustrationProfilesView.tsx` | `src/api/client.ts`, `../api/src/index.ts`, `../api/src/services/illustrations.ts` | `IllustrationProfilesView`, `IllustrationProfileSummary`, `IllustrationProfileDetail`, `illustrationProfiles`, `createIllustrationProfile`, `trainIllustrationProfile`, `correctIllustrationTrainingExample`, `testIllustrationProfile`, `publishIllustrationProfile` |
 | audit log | `src/views/AuditView.tsx` | `src/api/client.ts`, `../api/src/services/admin.ts` | `AuditView`, `api.audit`, `auditLogs`, `actorEmail`, `metadata` |
 | CSS/layout/status badge/table styles | `src/styles.css`, `src/App.tsx` | n/a | `admin-layout`, `sidebar`, `topbar`, `panel`, `inline-form`, `mini-form`, `status-good`, `status-bad` |
 
@@ -53,16 +54,17 @@ View union in `src/adminTypes.ts`; sidebar metadata in `src/viewConfig.ts`:
 - `entitlements`
 - `paddle`
 - `emails`
+- `illustrations`
 - `audit`
 - `profile`
 
 Shared state in `AdminShell`:
 
 - `view`: active sidebar section.
-- `data`: `AdminData` containing overview, users, customers, subscriptions, promotions, tiers, entitlement definitions/grants, email settings/templates, and audit logs.
+- `data`: `AdminData` containing overview, users, customers, subscriptions, promotions, tiers, entitlement definitions/grants, email settings/templates, illustration profiles, and audit logs.
 - `loading`, `error`.
 
-`loadAll(customerSearch = '', systemUserSearch = '')` fetches in parallel:
+`loadAll(customerSearch = '', systemUserSearch = '', illustrationProfileSearch = '')` fetches in parallel:
 
 - `api.overview()`
 - `api.systemUsers()`
@@ -73,6 +75,7 @@ Shared state in `AdminShell`:
 - `api.entitlements()`
 - `api.emailSettings()`
 - `api.emailTemplates()`
+- `api.illustrationProfiles()`
 - `api.audit()`
 
 If a mutation changes table data, call the provided `reload()` so UI does not
@@ -169,6 +172,27 @@ show stale admin state.
 - Displays redacted effective credential previews, sources, and updated time.
 - Saves through `api.updatePaddleSettings`.
 
+`IllustrationProfilesView`:
+
+- Create fields: `carrier`, `productName`, `productType`, `notes`.
+- Search form field: `search`.
+- Table columns: Carrier, Product, Type, Status, Active Version, Updated.
+- Detail dialog shows status, active version, draft/published version summary,
+  timestamps, notes, profile inventory counts, train/test upload forms, mapping
+  review tables, corrected output JSON, save approval, and publish controls.
+- Train/test upload fields: `file`, `notes`, `maxPages`, `useFastModel`.
+- Field mapping review columns: MANLE Field, Detected Value, Evidence,
+  Confidence, Strategy, Transform, Required, Action.
+- Fingerprint and projection mapping tables support inline edit/ignore/restore.
+- Publish is disabled until reviewed fingerprints and field mappings are saved
+  to the draft version.
+- Creates through `api.createIllustrationProfile`.
+- Opens details through `api.illustrationProfile`.
+- Training/testing/publishing use `api.trainIllustrationProfile`,
+  `api.testIllustrationProfile`,
+  `api.correctIllustrationTrainingExample`, and
+  `api.publishIllustrationProfile`.
+
 `AuditView`:
 
 - Displays `createdAt`, `actorEmail`, `action`, `targetType:targetId`, JSON metadata.
@@ -178,7 +202,9 @@ show stale admin state.
 `src/api/client.ts`:
 
 - `API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8787'`
-- `request(path, init)` always sends `credentials: 'include'` and JSON content type.
+- `request(path, init)` always sends `credentials: 'include'`; JSON requests
+  send `Content-Type: application/json`, while `FormData` upload requests let
+  the browser set the multipart boundary.
 - `canRefresh(path)` excludes login/logout/refresh/bootstrap.
 - `refreshAdminAuth()` calls `POST /api/admin/auth/refresh`.
 - `apiFetch<T>` retries once after 401 if refresh succeeds.
@@ -195,6 +221,10 @@ Exported types:
 - `EntitlementDefinition`
 - `EntitlementGrant`
 - `AuditLog`
+- `IllustrationProfileSummary`
+- `IllustrationProfileDetail`
+- `IllustrationTrainingResponse`
+- `IllustrationTrainingCorrectionInput`
 
 Exported API methods:
 
@@ -227,6 +257,13 @@ Exported API methods:
 - `updatePaddleSettings`
 - `audit`
 - `syncPaddle`
+- `illustrationProfiles`
+- `createIllustrationProfile`
+- `illustrationProfile`
+- `trainIllustrationProfile`
+- `correctIllustrationTrainingExample`
+- `testIllustrationProfile`
+- `publishIllustrationProfile`
 
 ## Backend Endpoint Map For Admin UI
 
@@ -244,6 +281,7 @@ mainly by `../api/src/services/admin.ts`.
 - Price tiers: `/api/admin/price-tiers`, `/api/admin/price-tiers/:code`
 - Entitlements: `/api/admin/entitlements`, `/api/admin/entitlements/:tierCode/:key`
 - Audit: `/api/admin/audit`
+- Illustration profiles: `/api/admin/illustration-profiles`, `/api/admin/illustration-profiles/:id`, `/api/admin/illustration-profiles/:id/train`, `/api/admin/illustration-profiles/:id/examples/:exampleId`, `/api/admin/illustration-profiles/:id/test`, `/api/admin/illustration-profiles/:id/publish`
 
 ## CSS Directory
 
@@ -257,6 +295,7 @@ Search anchors:
 - Panels/metrics: `.panel`, `.panel-head`, `.content-grid`, `.metric-grid`, `.metric`
 - Status/messages: `.status`, `.status-good`, `.status-bad`, `.status-neutral`, `.error-box`, `.success-box`, `.loading`, `.empty`, `.muted`
 - Entitlements: `.entitlement-list`, `.entitlement-cell`
+- Illustration training: `.illustration-workbench`, `.illustration-upload-grid`, `.illustration-review-table`, `.low-confidence-row`
 
 ## Search Recipes
 

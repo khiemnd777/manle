@@ -162,6 +162,268 @@ export type EmailTemplate = {
   updatedAt: string;
 };
 
+export type IllustrationProductType = 'iul' | 'term';
+export type IllustrationProfileStatus = 'draft' | 'active' | 'archived';
+export type IllustrationProfileVersionStatus = 'draft' | 'published' | 'archived';
+export type IllustrationTrainingExampleStatus = 'uploaded' | 'training' | 'reviewed' | 'rejected' | 'archived';
+export type IllustrationExtractionRunStatus = 'pending' | 'unsupported_profile' | 'needs_review' | 'succeeded' | 'failed';
+export type IllustrationExtractionRunType = 'admin_train' | 'admin_test' | 'runtime_extract';
+export type IllustrationRuntimeErrorCode =
+  | 'invalid_pdf'
+  | 'pdf_parse_failed'
+  | 'unsupported_profile'
+  | 'no_published_profile'
+  | 'low_match_confidence'
+  | 'needs_review'
+  | 'profile_update_required'
+  | 'low_extraction_confidence'
+  | 'validation_failed'
+  | 'extraction_failed'
+  | 'openai_not_configured';
+export type IllustrationFieldPath =
+  | 'carrier'
+  | 'productName'
+  | 'productType'
+  | 'client.fullName'
+  | 'client.age'
+  | 'client.gender'
+  | 'client.state'
+  | 'client.riskClass'
+  | 'policy.faceAmount'
+  | 'policy.monthlyPremium'
+  | 'policy.premiumMode'
+  | 'policy.payYears'
+  | 'policy.termLength'
+  | 'agent.name'
+  | 'agent.phone'
+  | 'projections[].year'
+  | 'projections[].age'
+  | 'projections[].policyValue'
+  | 'projections[].cashSurrenderValue'
+  | 'projections[].cashValue'
+  | 'projections[].deathBenefit';
+
+export type IllustrationEvidenceSnippet = {
+  page: number;
+  text: string;
+  confidence: number;
+  fieldPath?: IllustrationFieldPath;
+  source?: 'pdf_text' | 'filename' | 'admin_correction' | 'manual';
+};
+
+export type IllustrationExtract = {
+  profileId: string;
+  profileVersionId?: string;
+  profileVersionNumber?: number;
+  carrier: string;
+  productName: string;
+  productType: IllustrationProductType;
+  client: {
+    fullName: string;
+    age?: number;
+    gender?: 'M' | 'F';
+    state?: string;
+    riskClass?: string;
+  };
+  policy: {
+    faceAmount?: number;
+    monthlyPremium?: number;
+    premiumMode?: 'monthly' | 'annual' | 'quarterly';
+    payYears?: number;
+    termLength?: number;
+  };
+  projections?: Array<{
+    year?: number;
+    age: number;
+    policyValue?: number;
+    cashSurrenderValue?: number;
+    cashValue?: number;
+    deathBenefit?: number;
+  }>;
+  agent?: {
+    name?: string;
+    phone?: string;
+  };
+  evidence: Record<string, IllustrationEvidenceSnippet>;
+  fieldConfidence?: Partial<Record<IllustrationFieldPath, number>>;
+  matchScore?: number;
+  extractionConfidence?: number;
+  schemaVersion?: number;
+};
+
+export type IllustrationValidationIssue = {
+  code: string;
+  path: string;
+  message: string;
+};
+
+export type IllustrationProfileSummary = {
+  id: string;
+  carrier: string;
+  productName: string;
+  productType: IllustrationProductType;
+  status: IllustrationProfileStatus;
+  notes: string;
+  activeVersionId?: string | null;
+  activeVersionNumber?: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IllustrationProfileVersionSummary = {
+  id: string;
+  profileId: string;
+  versionNumber: number;
+  status: IllustrationProfileVersionStatus;
+  schemaVersion: number;
+  minMatchScore: number;
+  minExtractionConfidence: number;
+  publishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IllustrationProfileFingerprint = {
+  id?: string;
+  profileId?: string;
+  profileVersionId?: string;
+  fingerprintType: 'carrier' | 'product' | 'form' | 'version' | 'text' | 'regex' | 'layout';
+  matchStrategy: 'contains' | 'equals' | 'regex' | 'normalized_contains';
+  value: string;
+  pageHint?: number | null;
+  required: boolean;
+  weight: number;
+  confidence: number;
+  evidenceSnippet?: string;
+};
+
+export type IllustrationProfileFieldMapping = {
+  id?: string;
+  profileId?: string;
+  profileVersionId?: string;
+  fieldPath: IllustrationFieldPath;
+  sourceStrategy: 'label_value' | 'regex' | 'table_cell' | 'filename' | 'constant' | 'manual';
+  sourceSelector: Record<string, unknown>;
+  transformRules: Record<string, unknown>;
+  required: boolean;
+  minConfidence: number;
+  notes?: string;
+};
+
+export type IllustrationProfileProjectionMapping = {
+  id?: string;
+  profileId?: string;
+  profileVersionId?: string;
+  projectionKey: string;
+  sourceStrategy: 'table' | 'summary_block' | 'regex' | 'manual';
+  rowSelector: Record<string, unknown>;
+  columnMappings: Record<string, unknown>;
+  valueMappings: Record<string, unknown>;
+  transformRules: Record<string, unknown>;
+  required: boolean;
+  minConfidence: number;
+  notes?: string;
+};
+
+export type IllustrationTrainingExampleSummary = {
+  id: string;
+  profileId: string;
+  profileVersionId?: string | null;
+  fileName: string;
+  fileSha256: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  status: IllustrationTrainingExampleStatus;
+  correctedExtract?: IllustrationExtract | Record<string, unknown>;
+  evidenceSnippets?: Record<string, IllustrationEvidenceSnippet> | Record<string, unknown>;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IllustrationProfileDetail = IllustrationProfileSummary & {
+  versions: IllustrationProfileVersionSummary[];
+  draftVersion?: IllustrationProfileVersionSummary | null;
+  publishedVersion?: IllustrationProfileVersionSummary | null;
+  fingerprints: IllustrationProfileFingerprint[];
+  fieldMappings: IllustrationProfileFieldMapping[];
+  projectionMappings: IllustrationProfileProjectionMapping[];
+  examples: IllustrationTrainingExampleSummary[];
+};
+
+export type IllustrationExtractionRunSummary = {
+  id: string;
+  profileId?: string | null;
+  profileVersionId?: string | null;
+  trainingExampleId?: string | null;
+  runType: IllustrationExtractionRunType;
+  status: IllustrationExtractionRunStatus;
+  modelProvider?: string | null;
+  modelName?: string | null;
+  inputSha256?: string | null;
+  matchScore?: number | null;
+  extractionConfidence?: number | null;
+  normalizedExtract?: IllustrationExtract | Record<string, unknown>;
+  evidenceSnippets?: Record<string, IllustrationEvidenceSnippet> | Record<string, unknown>;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IllustrationTrainingProposal = {
+  profileId: string;
+  profileVersionId?: string;
+  exampleId?: string;
+  runId?: string;
+  modelProvider?: string;
+  modelName?: string;
+  normalizedExtract: IllustrationExtract;
+  fingerprints: IllustrationProfileFingerprint[];
+  fieldMappings: IllustrationProfileFieldMapping[];
+  projectionMappings: IllustrationProfileProjectionMapping[];
+  confidence: number;
+  issues: IllustrationValidationIssue[];
+};
+
+export type IllustrationTrainingUploadInput = {
+  file: File;
+  profileVersionId?: string;
+  notes?: string;
+  useFastModel?: boolean;
+  maxPages?: number;
+};
+
+export type IllustrationTrainingCorrectionInput = {
+  profileVersionId?: string | null;
+  status?: IllustrationTrainingExampleStatus;
+  correctedExtract?: IllustrationExtract | Record<string, unknown>;
+  evidenceSnippets?: Record<string, IllustrationEvidenceSnippet> | Record<string, unknown>;
+  notes?: string;
+  fingerprints?: IllustrationProfileFingerprint[];
+  fieldMappings?: IllustrationProfileFieldMapping[];
+  projectionMappings?: IllustrationProfileProjectionMapping[];
+};
+
+export type IllustrationTrainingResponse =
+  | {
+      status: 'succeeded' | 'needs_review';
+      proposal: IllustrationTrainingProposal;
+      message?: string;
+      example: IllustrationTrainingExampleSummary | null;
+      run: IllustrationExtractionRunSummary;
+    }
+  | {
+      status: 'failed';
+      code: IllustrationRuntimeErrorCode;
+      message: string;
+      runId?: string;
+      issues?: IllustrationValidationIssue[];
+      example: IllustrationTrainingExampleSummary | null;
+      run: IllustrationExtractionRunSummary;
+    };
+
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -174,13 +436,17 @@ export class ApiError extends Error {
 }
 
 async function request(path: string, init: RequestInit = {}) {
+  const isFormData = init.body instanceof FormData;
+  const headers = isFormData
+    ? init.headers
+    : {
+        'Content-Type': 'application/json',
+        ...(init.headers || {}),
+      };
   return await fetch(`${API_BASE}${path}`, {
     ...init,
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init.headers || {}),
-    },
+    headers,
   });
 }
 
@@ -216,6 +482,16 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(response.status, payload?.error?.code || 'request_failed', payload?.error?.message || 'Request failed');
   }
   return payload as T;
+}
+
+function illustrationTrainingForm(body: IllustrationTrainingUploadInput) {
+  const form = new FormData();
+  form.set('file', body.file);
+  if (body.profileVersionId) form.set('profileVersionId', body.profileVersionId);
+  if (body.notes) form.set('notes', body.notes);
+  if (body.useFastModel != null) form.set('useFastModel', String(body.useFastModel));
+  if (body.maxPages != null) form.set('maxPages', String(body.maxPages));
+  return form;
 }
 
 export const api = {
@@ -299,4 +575,30 @@ export const api = {
     apiFetch<{ ok: true }>(`/api/admin/email/templates/${encodeURIComponent(key)}`, { method: 'DELETE' }),
   sendTestEmail: (body: { templateKey: string; to: string; variables?: Record<string, unknown> }) =>
     apiFetch<{ ok: true; id: string | null }>('/api/admin/email/test', { method: 'POST', body: JSON.stringify(body) }),
+  illustrationProfiles: (search = '') =>
+    apiFetch<{ profiles: IllustrationProfileSummary[] }>(`/api/admin/illustration-profiles?search=${encodeURIComponent(search)}`),
+  createIllustrationProfile: (body: { carrier: string; productName: string; productType: IllustrationProductType; notes?: string }) =>
+    apiFetch<{ profile: IllustrationProfileDetail }>('/api/admin/illustration-profiles', { method: 'POST', body: JSON.stringify(body) }),
+  illustrationProfile: (id: string) =>
+    apiFetch<{ profile: IllustrationProfileDetail }>(`/api/admin/illustration-profiles/${id}`),
+  trainIllustrationProfile: (id: string, body: IllustrationTrainingUploadInput) =>
+    apiFetch<IllustrationTrainingResponse>(`/api/admin/illustration-profiles/${id}/train`, {
+      method: 'POST',
+      body: illustrationTrainingForm(body),
+    }),
+  correctIllustrationTrainingExample: (profileId: string, exampleId: string, body: IllustrationTrainingCorrectionInput) =>
+    apiFetch<{ example: IllustrationTrainingExampleSummary; profile: IllustrationProfileDetail }>(
+      `/api/admin/illustration-profiles/${profileId}/examples/${exampleId}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  testIllustrationProfile: (id: string, body: IllustrationTrainingUploadInput) =>
+    apiFetch<IllustrationTrainingResponse>(`/api/admin/illustration-profiles/${id}/test`, {
+      method: 'POST',
+      body: illustrationTrainingForm(body),
+    }),
+  publishIllustrationProfile: (id: string, body: { profileVersionId?: string } = {}) =>
+    apiFetch<{ profile: IllustrationProfileDetail }>(`/api/admin/illustration-profiles/${id}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };

@@ -215,7 +215,17 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: number)
   );
 }
 
-export function Dialog({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+export function Dialog({
+  title,
+  children,
+  onClose,
+  panelClassName = '',
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+  panelClassName?: string;
+}) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') onClose();
@@ -227,7 +237,7 @@ export function Dialog({ title, children, onClose }: { title: string; children: 
 
   return (
     <div className="dialog-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="dialog-panel" role="dialog" aria-modal="true" aria-label={title}>
+      <section className={['dialog-panel', panelClassName].filter(Boolean).join(' ')} role="dialog" aria-modal="true" aria-label={title}>
         <header className="dialog-head">
           <h2>{title}</h2>
           <ActionButton className="ghost-button" type="button" icon="x" onClick={onClose}>Close</ActionButton>

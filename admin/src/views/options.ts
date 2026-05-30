@@ -23,3 +23,8 @@ export const discountTypeOptions: SelectOption[] = [
   { value: 'trial', label: 'trial' },
   { value: 'custom', label: 'custom' },
 ];
+
+export const illustrationProductTypeOptions: SelectOption[] = [
+  { value: 'iul', label: 'IUL' },
+  { value: 'term', label: 'Term Life' },
+];

@@ -24,7 +24,13 @@ Current state:
 - Slice 7 admin illustration profile CRUD APIs have been added in
   `api/src/index.ts`.
 - Slice 8 admin train/test/publish APIs have been added in `api/src/index.ts`.
-- Admin UI and generator runtime integration have not been started yet.
+- Slice 9 admin API client types and methods have been added in
+  `admin/src/api/client.ts`.
+- Slice 10 admin profile list/create/detail UI has been added under
+  `admin/src/views/IllustrationProfilesView.tsx`.
+- Slice 11 admin mapping review/edit UI has been added in the illustration
+  profile detail workbench.
+- Generator runtime integration has not been started yet.
 - Generator runtime must not learn new carriers from customer uploads.
 - Generator runtime must only render when a published admin-approved profile
   matches the uploaded PDF.
@@ -173,6 +179,25 @@ Files changed:
 - `api/src/services/illustrations.ts`: added training example correction,
   mapping replacement, publish validation, and mapping/fingerprint persistence
   helpers.
+- `admin/src/api/client.ts`: added typed illustration profile contracts and
+  API methods for list/create/detail/train/correct/test/publish workflows.
+- `admin/src/App.tsx`: wired the illustration profiles view into lazy routing
+  and admin data loading.
+- `admin/src/adminTypes.ts`: added illustration profile state to admin data and
+  view routing types.
+- `admin/src/viewConfig.ts`: added the sidebar/topbar metadata for
+  illustration profiles.
+- `admin/src/views/IllustrationProfilesView.tsx`: added profile list, search,
+  create, detail, train/test upload, mapping review/edit, save approval, and
+  publish controls.
+- `admin/src/adminShared.tsx`: allowed wide admin dialogs for dense review
+  tables.
+- `admin/src/views/options.ts`: added product type select options for
+  illustration profiles.
+- `admin/src/styles.css`: added illustration review workbench, wide dialog,
+  mapping table, evidence, and low-confidence row styles.
+- `admin/AGENT_DIRECTORY.md`: documented the new admin client methods and
+  illustration UI workflows.
 - `api/src/config.ts`: added `OPENAI_*` extractor configuration defaults.
 - `.env.example`: documented OpenAI extractor variables.
 - `api/package.json`: added `pdfjs-dist` dependency for backend extraction.
@@ -220,6 +245,12 @@ Validation run:
   correction/mapping helpers.
 - `cd api && bun run build`: passed after adding Slice 8 admin
   train/test/publish routes.
+- `cd admin && bun run build`: passed after adding Slice 9 admin API client
+  types and methods.
+- `cd admin && bun run build`: passed after adding Slice 10 admin profile
+  list/create/detail UI.
+- `cd admin && bun run build`: passed after adding Slice 11 admin mapping
+  review/edit UI.
 - `cd api && bun run db:migrate`: attempted, but local Postgres was not
   reachable, so the migration was not applied locally.
 
@@ -248,9 +279,9 @@ Implementation progress ledger:
 - [x] Slice 6: Add OpenAI structured extraction service for admin training.
 - [x] Slice 7: Add admin profile CRUD APIs.
 - [x] Slice 8: Add admin train/test/publish APIs.
-- [ ] Slice 9: Add admin API client types and methods.
-- [ ] Slice 10: Add admin profile list/create/detail UI.
-- [ ] Slice 11: Add admin mapping review/edit UI.
+- [x] Slice 9: Add admin API client types and methods.
+- [x] Slice 10: Add admin profile list/create/detail UI.
+- [x] Slice 11: Add admin mapping review/edit UI.
 - [ ] Slice 12: Add generator runtime extraction API.
 - [ ] Slice 13: Update generator upload flow to call backend extraction.
 - [ ] Slice 14: Render normalized IUL/Term extracts into the right-side card.
@@ -669,6 +700,25 @@ Validation:
 Dependencies:
 - Slices 7, 8.
 
+Implemented:
+- Added illustration profile response/request types to
+  `admin/src/api/client.ts`, including profile summaries/details, versions,
+  fingerprints, mappings, training examples, extraction runs, training
+  proposals, and correction payloads.
+- Added client methods:
+  - `illustrationProfiles`
+  - `createIllustrationProfile`
+  - `illustrationProfile`
+  - `trainIllustrationProfile`
+  - `correctIllustrationTrainingExample`
+  - `testIllustrationProfile`
+  - `publishIllustrationProfile`
+- Updated admin request handling so `FormData` upload requests do not force
+  `Content-Type: application/json`.
+
+Validation:
+- `cd admin && bun run build`: passed.
+
 ## Slice 10: Admin profile list/create/detail UI
 Labels: area:admin, risk:contract, type:feature
 
@@ -699,6 +749,18 @@ Validation:
 
 Dependencies:
 - Slice 9.
+
+Implemented:
+- Added `IllustrationProfilesView` with search, sortable profile table, empty
+  state, compact create dialog, and detail dialog.
+- Wired `illustrations` into the admin view union, sidebar metadata, lazy route
+  rendering, and `loadAll()` data loading.
+- Detail view shows status, active version, draft/published version summary,
+  timestamps, notes, and inventory counts for versions, examples,
+  fingerprints, field mappings, and projection mappings.
+
+Validation:
+- `cd admin && bun run build`: passed.
 
 ## Slice 11: Admin mapping review/edit UI
 Labels: area:admin, area:pdf, risk:parser, risk:contract, type:feature
@@ -731,6 +793,24 @@ Validation:
 
 Dependencies:
 - Slices 8, 10.
+
+Implemented:
+- Expanded `IllustrationProfilesView` into a profile detail workbench with
+  training PDF upload, test PDF upload, optional fast model and max-page
+  controls, and backend error display.
+- Added mapping review/edit tables for fingerprints, field mappings, and
+  projection mappings with inline edit, ignore, restore, confidence, required,
+  strategy, selector, transform, and evidence review controls.
+- Added corrected sample output JSON editing and `Save reviewed mappings`,
+  which calls `api.correctIllustrationTrainingExample` to persist admin
+  approval to the draft profile version.
+- Publish controls now require saved fingerprints and field mappings before the
+  publish button enables; backend publish validation remains authoritative.
+- Evidence display is limited to stored page/text snippets from the proposal,
+  not full raw PDF text.
+
+Validation:
+- `cd admin && bun run build`: passed.
 
 ## Slice 12: Generator runtime extraction API
 Labels: area:api, area:pdf, risk:parser, risk:contract, type:feature

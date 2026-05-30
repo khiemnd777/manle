@@ -23,12 +23,13 @@ const TiersView = lazy(() => import('./views/TiersView'));
 const EntitlementsView = lazy(() => import('./views/EntitlementsView'));
 const PaddleSettingsView = lazy(() => import('./views/PaddleSettingsView'));
 const EmailsView = lazy(() => import('./views/EmailsView'));
+const IllustrationProfilesView = lazy(() => import('./views/IllustrationProfilesView'));
 const AuditView = lazy(() => import('./views/AuditView'));
 const ProfileView = lazy(() => import('./views/ProfileView'));
 
 type LoginMode = 'login' | 'forgot' | 'reset';
 type AuthMessageKind = 'success' | 'info';
-type LoadAll = (customerSearch?: string, systemUserSearch?: string) => Promise<void>;
+type LoadAll = (customerSearch?: string, systemUserSearch?: string, illustrationProfileSearch?: string) => Promise<void>;
 
 function resetTokenFromUrl() {
   return new URLSearchParams(window.location.search).get('reset_token') || '';
@@ -295,7 +296,7 @@ function AdminShell({
     setToasts(current => current.filter(toast => toast.id !== id));
   }, []);
 
-  const loadAll = useCallback<LoadAll>(async (customerSearch = '', systemUserSearch = '') => {
+  const loadAll = useCallback<LoadAll>(async (customerSearch = '', systemUserSearch = '', illustrationProfileSearch = '') => {
     setLoading(true);
     setError('');
     if (!isAdmin) {
@@ -304,7 +305,7 @@ function AdminShell({
       return;
     }
     try {
-      const [overview, systemUsers, customers, subscriptions, promotions, tiers, entitlements, paddleSettings, emailSettings, emailTemplates, audit] = await Promise.all([
+      const [overview, systemUsers, customers, subscriptions, promotions, tiers, entitlements, paddleSettings, emailSettings, emailTemplates, illustrationProfiles, audit] = await Promise.all([
         api.overview(),
         api.systemUsers(systemUserSearch),
         api.customers(customerSearch),
@@ -315,6 +316,7 @@ function AdminShell({
         api.paddleSettings(),
         api.emailSettings(),
         api.emailTemplates(),
+        api.illustrationProfiles(illustrationProfileSearch),
         api.audit(),
       ]);
       setData({
@@ -329,6 +331,7 @@ function AdminShell({
         paddleSettings: paddleSettings.settings,
         emailSettings: emailSettings.settings,
         emailTemplates: emailTemplates.templates,
+        illustrationProfiles: illustrationProfiles.profiles,
         auditLogs: audit.logs,
       });
     } catch (err) {
@@ -423,6 +426,7 @@ function AdminShell({
               {view === 'entitlements' && isAdmin && <EntitlementsView data={data} reload={loadAll} />}
               {view === 'paddle' && isAdmin && <PaddleSettingsView data={data} reload={loadAll} />}
               {view === 'emails' && isAdmin && <EmailsView data={data} reload={loadAll} />}
+              {view === 'illustrations' && isAdmin && <IllustrationProfilesView data={data} reload={loadAll} />}
               {view === 'audit' && isAdmin && <AuditView logs={data.auditLogs} />}
               {view === 'profile' && <ProfileView actor={actor} onActorChange={onActorChange} />}
             </Suspense>

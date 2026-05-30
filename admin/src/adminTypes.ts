@@ -5,6 +5,7 @@ import type {
   EmailTemplate,
   EntitlementDefinition,
   EntitlementGrant,
+  IllustrationProfileSummary,
   PaddleSettings,
   PriceTier,
   Promotion,
@@ -12,7 +13,7 @@ import type {
   SystemUser,
 } from './api/client';
 
-export type View = 'users' | 'customers' | 'subscriptions' | 'promotions' | 'tiers' | 'entitlements' | 'paddle' | 'emails' | 'audit' | 'profile';
+export type View = 'users' | 'customers' | 'subscriptions' | 'promotions' | 'tiers' | 'entitlements' | 'paddle' | 'emails' | 'illustrations' | 'audit' | 'profile';
 
 export type AdminData = {
   overview: { systemUsers: number; customers: number; activeSubscriptions: number; activePromotions: number; activeTiers: number };
@@ -26,6 +27,7 @@ export type AdminData = {
   paddleSettings: PaddleSettings | null;
   emailSettings: EmailSettings | null;
   emailTemplates: EmailTemplate[];
+  illustrationProfiles: IllustrationProfileSummary[];
   auditLogs: AuditLog[];
 };
 

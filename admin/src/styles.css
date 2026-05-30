@@ -832,6 +832,9 @@ td button { font-size: 12px; }
   border-radius: 8px;
   box-shadow: var(--shadow-lg);
 }
+.dialog-panel.wide-dialog {
+  width: min(1180px, 100%);
+}
 .dialog-head {
   position: sticky;
   top: 0;
@@ -868,6 +871,100 @@ td button { font-size: 12px; }
   background: var(--panel-muted);
 }
 .dialog-context span { color: var(--muted); }
+
+.illustration-workbench {
+  gap: 16px;
+}
+.illustration-detail-grid,
+.illustration-upload-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.illustration-training-panel,
+.illustration-review-panel {
+  display: grid;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.illustration-training-panel h3,
+.illustration-review-panel h3 {
+  margin: 0;
+  color: var(--navy);
+  font-size: 15px;
+  line-height: 1.25;
+}
+.inline-panel-head {
+  margin-bottom: 0;
+  padding-bottom: 10px;
+}
+.inline-panel-head p {
+  margin: 3px 0 0;
+}
+.json-area {
+  min-height: 220px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.illustration-review-table {
+  min-width: 1080px;
+}
+.illustration-review-table th,
+.illustration-review-table td {
+  vertical-align: top;
+}
+.illustration-review-table select,
+.illustration-review-table input,
+.illustration-review-table textarea {
+  min-height: 32px;
+  font-size: 12px;
+}
+.illustration-review-table textarea {
+  min-height: 64px;
+  min-width: 170px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  line-height: 1.35;
+}
+.illustration-review-table td > select + select,
+.illustration-review-table td > select + textarea,
+.illustration-review-table td > input + input,
+.illustration-review-table td > input + textarea,
+.illustration-review-table td > textarea + textarea,
+.illustration-review-table td > select + input {
+  margin-top: 6px;
+}
+.illustration-review-table input[type="checkbox"] {
+  width: auto;
+  min-height: auto;
+}
+.illustration-review-table code {
+  display: inline-block;
+  max-width: 190px;
+  overflow-wrap: anywhere;
+}
+.evidence-cell {
+  min-width: 220px;
+  max-width: 280px;
+}
+.evidence-cell strong,
+.evidence-cell span {
+  display: block;
+}
+.evidence-cell span {
+  max-height: 86px;
+  overflow: auto;
+  color: var(--muted);
+}
+.low-confidence-row {
+  background: #fffaf0;
+}
+.is-muted-row {
+  opacity: .58;
+  background: #f8fafc;
+}
 
 .custom-select {
   position: relative;
@@ -1033,6 +1130,8 @@ code {
   .profile-grid,
   .email-grid,
   .settings-grid,
+  .illustration-detail-grid,
+  .illustration-upload-grid,
   .test-variable-grid {
     grid-template-columns: 1fr;
   }

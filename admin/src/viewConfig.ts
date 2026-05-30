@@ -42,6 +42,11 @@ export const viewMeta: Record<View, { label: string; icon: IconName; description
     icon: 'emails',
     description: 'Manage Resend delivery settings, reusable templates, and test sends.',
   },
+  illustrations: {
+    label: 'Illustration Profiles',
+    icon: 'layers',
+    description: 'Train and publish carrier/product extraction profiles for supported illustration PDFs.',
+  },
   audit: {
     label: 'Audit Log',
     icon: 'audit',
@@ -54,7 +59,7 @@ export const viewMeta: Record<View, { label: string; icon: IconName; description
   },
 };
 
-export const adminNavItems: View[] = ['users', 'customers', 'subscriptions', 'promotions', 'tiers', 'entitlements', 'paddle', 'emails', 'audit'];
+export const adminNavItems: View[] = ['users', 'customers', 'subscriptions', 'promotions', 'tiers', 'entitlements', 'paddle', 'emails', 'illustrations', 'audit'];
 
 export const emptyData: AdminData = {
   overview: { systemUsers: 0, customers: 0, activeSubscriptions: 0, activePromotions: 0, activeTiers: 0 },
@@ -68,5 +73,6 @@ export const emptyData: AdminData = {
   paddleSettings: null,
   emailSettings: null,
   emailTemplates: [],
+  illustrationProfiles: [],
   auditLogs: [],
 };
