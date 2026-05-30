@@ -262,6 +262,20 @@ export type StoreIllustrationTrainingExampleInput = IllustrationTrainingUploadIn
   evidenceSnippets?: Record<string, IllustrationEvidenceSnippet> | JsonObject;
 };
 
+export type UpdateIllustrationTrainingExampleInput = {
+  profileVersionId?: string | null;
+  status?: IllustrationTrainingExampleStatus;
+  correctedExtract?: IllustrationExtract | JsonObject;
+  evidenceSnippets?: Record<string, IllustrationEvidenceSnippet> | JsonObject;
+  notes?: string;
+};
+
+export type IllustrationTrainingCorrectionInput = UpdateIllustrationTrainingExampleInput & {
+  fingerprints?: IllustrationProfileFingerprint[];
+  fieldMappings?: IllustrationProfileFieldMapping[];
+  projectionMappings?: IllustrationProfileProjectionMapping[];
+};
+
 export type IllustrationExtractionRunSummary = {
   id: string;
   profileId?: string | null;

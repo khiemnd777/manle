@@ -19,8 +19,12 @@ Current state:
   `api/src/services/pdfExtraction.ts`.
 - Slice 5 deterministic published profile fingerprint matching has been added
   under `api/src/services/illustrationMatching.ts`.
-- API routes, admin UI, OpenAI services, and generator runtime integration have
-  not been started yet.
+- Slice 6 OpenAI structured extraction service for admin training has been
+  added under `api/src/services/openaiIllustrationExtraction.ts`.
+- Slice 7 admin illustration profile CRUD APIs have been added in
+  `api/src/index.ts`.
+- Slice 8 admin train/test/publish APIs have been added in `api/src/index.ts`.
+- Admin UI and generator runtime integration have not been started yet.
 - Generator runtime must not learn new carriers from customer uploads.
 - Generator runtime must only render when a published admin-approved profile
   matches the uploaded PDF.
@@ -161,6 +165,16 @@ Files changed:
 - `api/src/services/illustrationMatching.ts`: added deterministic published
   profile fingerprint matching with required/non-carrier fingerprint guards and
   blocked runtime statuses.
+- `api/src/services/openaiIllustrationExtraction.ts`: added admin-training-only
+  OpenAI Responses API Structured Outputs service with mapping proposal schema,
+  retry handling, output normalization, and validation.
+- `api/src/index.ts`: added admin-only profile list/create/detail routes for
+  illustration profile workflows, plus train/correction/test/publish routes.
+- `api/src/services/illustrations.ts`: added training example correction,
+  mapping replacement, publish validation, and mapping/fingerprint persistence
+  helpers.
+- `api/src/config.ts`: added `OPENAI_*` extractor configuration defaults.
+- `.env.example`: documented OpenAI extractor variables.
 - `api/package.json`: added `pdfjs-dist` dependency for backend extraction.
 - `api/bun.lock`: recorded the API dependency lockfile.
 - `api/AGENT_DIRECTORY.md`: documented the new migration, type contracts, and
@@ -194,6 +208,18 @@ Validation run:
   --outdir /private/tmp/manle-api-matching-build`: passed after adding Slice 5
   matcher.
 - `cd api && bun run build`: passed after adding Slice 5 matcher.
+- `cd api && bun build src/services/openaiIllustrationExtraction.ts --target
+  bun --outdir /private/tmp/manle-api-openai-extraction-build`: passed after
+  adding Slice 6 OpenAI training service.
+- `cd api && bun run build`: passed after adding Slice 6 OpenAI training
+  service.
+- `cd api && bun run build`: passed after adding Slice 7 admin profile CRUD
+  routes.
+- `cd api && bun build src/services/illustrations.ts --target bun --outdir
+  /private/tmp/manle-api-illustrations-build`: passed after adding Slice 8
+  correction/mapping helpers.
+- `cd api && bun run build`: passed after adding Slice 8 admin
+  train/test/publish routes.
 - `cd api && bun run db:migrate`: attempted, but local Postgres was not
   reachable, so the migration was not applied locally.
 
@@ -219,9 +245,9 @@ Implementation progress ledger:
 - [x] Slice 3: Add profile repositories and service skeletons.
 - [x] Slice 4: Add backend PDF text/layout extraction service.
 - [x] Slice 5: Add deterministic profile fingerprint matching.
-- [ ] Slice 6: Add OpenAI structured extraction service for admin training.
-- [ ] Slice 7: Add admin profile CRUD APIs.
-- [ ] Slice 8: Add admin train/test/publish APIs.
+- [x] Slice 6: Add OpenAI structured extraction service for admin training.
+- [x] Slice 7: Add admin profile CRUD APIs.
+- [x] Slice 8: Add admin train/test/publish APIs.
 - [ ] Slice 9: Add admin API client types and methods.
 - [ ] Slice 10: Add admin profile list/create/detail UI.
 - [ ] Slice 11: Add admin mapping review/edit UI.
@@ -492,6 +518,27 @@ Validation:
 Dependencies:
 - Slices 2, 4.
 
+Implemented:
+- Added `api/src/services/openaiIllustrationExtraction.ts` with
+  `generateIllustrationTrainingProposal` for admin training only.
+- The service calls the OpenAI Responses API using Structured Outputs
+  (`text.format` JSON schema), builds a normalized extract plus fingerprints,
+  field mappings, projection mappings, evidence, confidence, and validation
+  issues.
+- Missing `OPENAI_API_KEY` fails with an admin-only
+  `openai_not_configured` error.
+- Retry uses `OPENAI_EXTRACTOR_RETRY_MODEL` when
+  `OPENAI_EXTRACTOR_ALLOW_RETRY=true`.
+- The service sends bounded PDF text excerpts to OpenAI and returns limited
+  evidence snippets; it does not log or store full raw PDF text.
+- Added `OPENAI_*` config reads in `api/src/config.ts`.
+
+Validation:
+- `cd api && bun build src/services/openaiIllustrationExtraction.ts --target
+  bun --outdir /private/tmp/manle-api-openai-extraction-build`: passed.
+- `cd api && bun run build`: passed.
+- Live OpenAI API call was intentionally not run during build validation.
+
 ## Slice 7: Admin profile CRUD APIs
 Labels: area:api, area:admin, area:db, risk:auth, risk:contract, type:feature
 
@@ -522,6 +569,20 @@ Validation:
 
 Dependencies:
 - Slices 1, 2, 3.
+
+Implemented:
+- Added admin-only routes in `api/src/index.ts`:
+  - `GET /api/admin/illustration-profiles?search=`
+  - `POST /api/admin/illustration-profiles`
+  - `GET /api/admin/illustration-profiles/:id`
+- Routes are reached only after `requireAdmin(request)`.
+- Create route uses `createIllustrationProfile`, which creates the initial
+  draft profile version and audits `illustration_profile.create`.
+- Detail route returns profile versions, mappings, fingerprints, and training
+  examples from `getIllustrationProfile`.
+
+Validation:
+- `cd api && bun run build`: passed.
 
 ## Slice 8: Admin train/test/publish APIs
 Labels: area:api, area:admin, area:pdf, risk:auth, risk:parser, risk:contract, type:feature
@@ -556,6 +617,30 @@ Validation:
 
 Dependencies:
 - Slices 4, 5, 6, 7.
+
+Implemented:
+- Added admin-only routes in `api/src/index.ts`:
+  - `POST /api/admin/illustration-profiles/:id/train`
+  - `PATCH /api/admin/illustration-profiles/:id/examples/:exampleId`
+  - `POST /api/admin/illustration-profiles/:id/test`
+  - `POST /api/admin/illustration-profiles/:id/publish`
+- Train/test routes accept multipart `file` or `pdf`, extract backend PDF
+  text/layout, record `illustration_extraction_runs`, and call
+  `generateIllustrationTrainingProposal`.
+- Train route stores/upserts an `illustration_training_examples` row; test route
+  does not store a training example.
+- Correction route stores admin-corrected output/evidence and optionally
+  replaces draft fingerprints, field mappings, and projection mappings.
+- Publish route publishes the supplied `profileVersionId` or current draft only
+  after required field mappings and required carrier/non-carrier fingerprints
+  pass validation.
+- Admin mutations are audited.
+
+Validation:
+- `cd api && bun build src/services/illustrations.ts --target bun --outdir
+  /private/tmp/manle-api-illustrations-build`: passed.
+- `cd api && bun run build`: passed.
+- Live DB/OpenAI endpoint testing was not run during build validation.
 
 ## Slice 9: Admin API client types and methods
 Labels: area:admin, risk:contract, type:feature

@@ -6,6 +6,7 @@ import {
   extractionRunStatusForRuntimeStatus,
   isConfidence,
   isIllustrationProductType,
+  requiredIllustrationFieldPaths,
   validateIllustrationExtract,
   type CreateIllustrationProfileInput,
   type IllustrationExtractionRunStatus,
@@ -21,6 +22,7 @@ import {
   type IllustrationProfileVersionSummary,
   type IllustrationProductType,
   type IllustrationRuntimeExtractStatus,
+  type IllustrationTrainingCorrectionInput,
   type IllustrationTrainingExampleStatus,
   type IllustrationTrainingExampleSummary,
   type JsonObject,
@@ -28,6 +30,7 @@ import {
   type StoreIllustrationTrainingExampleInput,
   type UpdateIllustrationExtractionRunInput,
   type UpdateIllustrationProfileInput,
+  type UpdateIllustrationTrainingExampleInput,
 } from '../types/illustration';
 import { audit } from './admin';
 
@@ -131,6 +134,10 @@ function cleanOptionalConfidence(value: number | null | undefined, path: string)
   if (value == null) return null;
   if (!isConfidence(value)) fail(400, 'invalid_confidence', `${path} must be between 0 and 1.`);
   return value;
+}
+
+function requiredBoolean(value: unknown) {
+  return value === true;
 }
 
 function assertSucceededRunExtract(input: StoreIllustrationExtractionRunInput | UpdateIllustrationExtractionRunInput) {
@@ -581,6 +588,7 @@ export async function ensureDraftIllustrationProfileVersion(actor: Actor, profil
 
 export async function publishIllustrationProfileVersion(actor: Actor, profileId: string, profileVersionId: string): Promise<IllustrationProfileDetail> {
   await assertProfileVersionBelongsToProfile(profileId, profileVersionId);
+  await validatePublishableIllustrationProfileVersion(profileId, profileVersionId);
   const sql = db();
   await sql`
     update illustration_profile_versions
@@ -608,6 +616,47 @@ export async function publishIllustrationProfileVersion(actor: Actor, profileId:
   `;
   await audit(actor, 'illustration_profile_version.publish', 'illustration_profile', profileId, { versionId: profileVersionId });
   return await getIllustrationProfile(profileId);
+}
+
+export async function validatePublishableIllustrationProfileVersion(profileId: string, profileVersionId: string) {
+  await assertProfileVersionBelongsToProfile(profileId, profileVersionId);
+  const sql = db();
+  const profile = await one<{ productType: IllustrationProductType }>(sql`
+    select product_type as "productType"
+    from illustration_profiles
+    where id = ${profileId}
+    limit 1
+  `);
+  if (!profile) fail(404, 'illustration_profile_not_found', 'Illustration profile not found.');
+
+  const [fingerprints, fieldMappings] = await Promise.all([
+    listFingerprintsForVersion(profileVersionId),
+    listFieldMappingsForVersion(profileVersionId),
+  ]);
+  const requiredPaths = requiredIllustrationFieldPaths(profile.productType);
+  const missingFieldPaths = requiredPaths.filter(path =>
+    !fieldMappings.some(mapping => mapping.fieldPath === path && mapping.required && mapping.sourceStrategy !== 'manual'),
+  );
+  if (missingFieldPaths.length) {
+    fail(400, 'publish_validation_failed', `Missing required field mappings: ${missingFieldPaths.join(', ')}.`);
+  }
+
+  const requiredFingerprints = fingerprints.filter(fingerprint => fingerprint.required);
+  if (!requiredFingerprints.length) {
+    fail(400, 'publish_validation_failed', 'At least one required fingerprint is needed before publishing.');
+  }
+  const hasCarrierFingerprint = requiredFingerprints.some(fingerprint => fingerprint.fingerprintType === 'carrier');
+  const hasNonCarrierFingerprint = requiredFingerprints.some(fingerprint => fingerprint.fingerprintType !== 'carrier');
+  if (!hasCarrierFingerprint || !hasNonCarrierFingerprint) {
+    fail(400, 'publish_validation_failed', 'Publishing requires required carrier and non-carrier product/form fingerprints.');
+  }
+
+  const invalidConfidence = [...fingerprints, ...fieldMappings].find(item => !isConfidence(item.confidence ?? item.minConfidence));
+  if (invalidConfidence) {
+    fail(400, 'publish_validation_failed', 'Fingerprints and mappings must have confidence values between 0 and 1.');
+  }
+
+  return { ok: true };
 }
 
 export async function listPublishedIllustrationProfileVersions(productType?: IllustrationProductType | null): Promise<PublishedIllustrationProfileVersion[]> {
@@ -871,6 +920,223 @@ export async function storeIllustrationTrainingExample(
     profileVersionId,
   });
   return mapTrainingExampleRow(row);
+}
+
+async function getTrainingExampleForProfile(profileId: string, exampleId: string) {
+  const sql = db();
+  const row = await one<any>(sql`
+    select
+      id,
+      profile_id as "profileId",
+      profile_version_id as "profileVersionId",
+      file_name as "fileName",
+      file_sha256 as "fileSha256",
+      mime_type as "mimeType",
+      file_size_bytes as "fileSizeBytes",
+      status,
+      corrected_extract as "correctedExtract",
+      evidence_snippets as "evidenceSnippets",
+      notes,
+      created_at as "createdAt",
+      updated_at as "updatedAt"
+    from illustration_training_examples
+    where id = ${exampleId}
+      and profile_id = ${profileId}
+    limit 1
+  `);
+  if (!row) fail(404, 'training_example_not_found', 'Illustration training example not found.');
+  return mapTrainingExampleRow(row);
+}
+
+export async function updateIllustrationTrainingExample(
+  actor: Actor,
+  profileId: string,
+  exampleId: string,
+  input: UpdateIllustrationTrainingExampleInput,
+): Promise<IllustrationTrainingExampleSummary> {
+  const current = await getTrainingExampleForProfile(profileId, exampleId);
+  const profileVersionId = input.profileVersionId ?? current.profileVersionId;
+  await assertProfileVersionBelongsToProfile(profileId, profileVersionId);
+
+  const status = input.status ? cleanTrainingStatus(input.status) : 'reviewed';
+  const notes = input.notes != null ? cleanText(input.notes) : null;
+  const sql = db();
+  const row = await one<any>(sql`
+    update illustration_training_examples
+    set
+      profile_version_id = coalesce(${profileVersionId || null}, profile_version_id),
+      status = ${status},
+      corrected_extract = coalesce(${jsonPayloadOrNull(input.correctedExtract)}, corrected_extract),
+      evidence_snippets = coalesce(${jsonPayloadOrNull(input.evidenceSnippets)}, evidence_snippets),
+      notes = coalesce(${notes}, notes),
+      updated_at = now()
+    where id = ${exampleId}
+      and profile_id = ${profileId}
+    returning
+      id,
+      profile_id as "profileId",
+      profile_version_id as "profileVersionId",
+      file_name as "fileName",
+      file_sha256 as "fileSha256",
+      mime_type as "mimeType",
+      file_size_bytes as "fileSizeBytes",
+      status,
+      corrected_extract as "correctedExtract",
+      evidence_snippets as "evidenceSnippets",
+      notes,
+      created_at as "createdAt",
+      updated_at as "updatedAt"
+  `);
+  if (!row) fail(500, 'training_example_update_failed', 'Could not update illustration training example.');
+  await audit(actor, 'illustration_training_example.update', 'illustration_profile', profileId, {
+    exampleId,
+    profileVersionId,
+    status,
+  });
+  return mapTrainingExampleRow(row);
+}
+
+export async function replaceIllustrationProfileVersionMappings(
+  actor: Actor,
+  profileId: string,
+  profileVersionId: string,
+  input: Pick<IllustrationTrainingCorrectionInput, 'fingerprints' | 'fieldMappings' | 'projectionMappings'>,
+) {
+  await assertProfileVersionBelongsToProfile(profileId, profileVersionId);
+  const sql = db();
+
+  if (input.fingerprints) {
+    await sql`delete from illustration_profile_fingerprints where profile_id = ${profileId} and profile_version_id = ${profileVersionId}`;
+    for (const fingerprint of input.fingerprints) {
+      await sql`
+        insert into illustration_profile_fingerprints (
+          profile_id,
+          profile_version_id,
+          fingerprint_type,
+          match_strategy,
+          value,
+          page_hint,
+          required,
+          weight,
+          confidence,
+          evidence_snippet
+        ) values (
+          ${profileId},
+          ${profileVersionId},
+          ${fingerprint.fingerprintType},
+          ${fingerprint.matchStrategy},
+          ${cleanText(fingerprint.value)},
+          ${fingerprint.pageHint ?? null},
+          ${requiredBoolean(fingerprint.required)},
+          ${fingerprint.weight ?? 1},
+          ${fingerprint.confidence ?? 1},
+          ${fingerprint.evidenceSnippet || ''}
+        )
+      `;
+    }
+  }
+
+  if (input.fieldMappings) {
+    await sql`delete from illustration_profile_field_mappings where profile_id = ${profileId} and profile_version_id = ${profileVersionId}`;
+    for (const mapping of input.fieldMappings) {
+      await sql`
+        insert into illustration_profile_field_mappings (
+          profile_id,
+          profile_version_id,
+          field_path,
+          source_strategy,
+          source_selector,
+          transform_rules,
+          required,
+          min_confidence,
+          notes
+        ) values (
+          ${profileId},
+          ${profileVersionId},
+          ${mapping.fieldPath},
+          ${mapping.sourceStrategy},
+          ${jsonPayload(mapping.sourceSelector)},
+          ${jsonPayload(mapping.transformRules)},
+          ${requiredBoolean(mapping.required)},
+          ${mapping.minConfidence ?? 0.8},
+          ${mapping.notes || ''}
+        )
+      `;
+    }
+  }
+
+  if (input.projectionMappings) {
+    await sql`delete from illustration_profile_projection_mappings where profile_id = ${profileId} and profile_version_id = ${profileVersionId}`;
+    for (const mapping of input.projectionMappings) {
+      await sql`
+        insert into illustration_profile_projection_mappings (
+          profile_id,
+          profile_version_id,
+          projection_key,
+          source_strategy,
+          row_selector,
+          column_mappings,
+          value_mappings,
+          transform_rules,
+          required,
+          min_confidence,
+          notes
+        ) values (
+          ${profileId},
+          ${profileVersionId},
+          ${mapping.projectionKey},
+          ${mapping.sourceStrategy},
+          ${jsonPayload(mapping.rowSelector)},
+          ${jsonPayload(mapping.columnMappings)},
+          ${jsonPayload(mapping.valueMappings)},
+          ${jsonPayload(mapping.transformRules)},
+          ${requiredBoolean(mapping.required)},
+          ${mapping.minConfidence ?? 0.8},
+          ${mapping.notes || ''}
+        )
+      `;
+    }
+  }
+
+  await sql`
+    update illustration_profile_versions
+    set updated_at = now()
+    where id = ${profileVersionId}
+      and profile_id = ${profileId}
+  `;
+  await sql`
+    update illustration_profiles
+    set updated_by = ${actor.id}, updated_at = now()
+    where id = ${profileId}
+  `;
+  await audit(actor, 'illustration_profile_mappings.replace', 'illustration_profile', profileId, {
+    profileVersionId,
+    fingerprints: input.fingerprints?.length,
+    fieldMappings: input.fieldMappings?.length,
+    projectionMappings: input.projectionMappings?.length,
+  });
+}
+
+export async function applyIllustrationTrainingCorrection(
+  actor: Actor,
+  profileId: string,
+  exampleId: string,
+  input: IllustrationTrainingCorrectionInput,
+) {
+  const current = await getTrainingExampleForProfile(profileId, exampleId);
+  const profileVersionId = input.profileVersionId ?? current.profileVersionId ?? (await ensureDraftIllustrationProfileVersion(actor, profileId)).id;
+  const example = await updateIllustrationTrainingExample(actor, profileId, exampleId, {
+    ...input,
+    profileVersionId,
+    status: input.status || 'reviewed',
+  });
+  if (input.fingerprints || input.fieldMappings || input.projectionMappings) {
+    await replaceIllustrationProfileVersionMappings(actor, profileId, profileVersionId, input);
+  }
+  return {
+    example,
+    profile: await getIllustrationProfile(profileId),
+  };
 }
 
 export async function recordIllustrationExtractionRun(input: StoreIllustrationExtractionRunInput): Promise<IllustrationExtractionRunSummary> {

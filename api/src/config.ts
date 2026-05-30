@@ -36,6 +36,11 @@ const feOrigin = Bun.env.FE_ORIGIN || 'http://127.0.0.1:5173';
 const adminOrigin = Bun.env.ADMIN_ORIGIN || 'http://127.0.0.1:5174';
 const sessionCookieName = Bun.env.SESSION_COOKIE_NAME || 'manle_session';
 
+function boolEnv(value: string | undefined, fallback: boolean) {
+  if (value == null || value === '') return fallback;
+  return value === 'true';
+}
+
 export const config = {
   databaseUrl: Bun.env.DATABASE_URL || '',
   host: Bun.env.API_HOST || '127.0.0.1',
@@ -63,6 +68,12 @@ export const config = {
   appleOAuthPrivateKey: Bun.env.APPLE_OAUTH_PRIVATE_KEY || '',
   appleOAuthClientSecret: Bun.env.APPLE_OAUTH_CLIENT_SECRET || '',
   appleOAuthRedirectUri: Bun.env.APPLE_OAUTH_REDIRECT_URI || '',
+  openaiApiKey: Bun.env.OPENAI_API_KEY || '',
+  openaiExtractorFastModel: Bun.env.OPENAI_EXTRACTOR_FAST_MODEL || 'gpt-4.1-nano',
+  openaiExtractorModel: Bun.env.OPENAI_EXTRACTOR_MODEL || 'gpt-4o-mini',
+  openaiExtractorRetryModel: Bun.env.OPENAI_EXTRACTOR_RETRY_MODEL || 'gpt-4.1-mini',
+  openaiExtractorAllowRetry: boolEnv(Bun.env.OPENAI_EXTRACTOR_ALLOW_RETRY, true),
+  openaiExtractorAllowEscalation: boolEnv(Bun.env.OPENAI_EXTRACTOR_ALLOW_ESCALATION, false),
 };
 
 export const paddleApiBase = config.paddleEnv === 'production'

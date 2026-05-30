@@ -1,5 +1,5 @@
 import { config } from './config';
-import { AppError } from './http/errors';
+import { AppError, fail } from './http/errors';
 import { corsHeaders, json, readJson } from './http/response';
 import {
   authCookieHeaders,
@@ -26,6 +26,7 @@ import {
   type OAuthProvider,
 } from './services/auth';
 import {
+  audit,
   auditLogs,
   createCustomer,
   createPromotion,
@@ -52,6 +53,19 @@ import {
   upsertPriceTier,
 } from './services/admin';
 import { accountEntitlements, authorizeExport, authorizeFeature } from './services/entitlements';
+import {
+  applyIllustrationTrainingCorrection,
+  createIllustrationProfile,
+  ensureDraftIllustrationProfileVersion,
+  getIllustrationProfile,
+  listIllustrationProfiles,
+  publishIllustrationProfileVersion,
+  recordIllustrationExtractionRun,
+  storeIllustrationTrainingExample,
+  updateIllustrationExtractionRun,
+} from './services/illustrations';
+import { extractPdfTextLayout } from './services/pdfExtraction';
+import { generateIllustrationTrainingProposal } from './services/openaiIllustrationExtraction';
 import {
   deleteEmailTemplate,
   getEmailSettings,
@@ -146,6 +160,137 @@ async function readOAuthCallbackInput(request: Request, url: URL) {
     state: url.searchParams.get('state') || '',
     error: url.searchParams.get('error') || '',
   };
+}
+
+function formText(form: FormData, key: string) {
+  const value = form.get(key);
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function formBool(form: FormData, key: string) {
+  const value = formText(form, key).toLowerCase();
+  return value === 'true' || value === '1' || value === 'yes';
+}
+
+function formNumber(form: FormData, key: string) {
+  const value = formText(form, key);
+  if (!value) return undefined;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+async function readIllustrationPdfUpload(request: Request) {
+  const form = await request.formData();
+  const upload = form.get('file') || form.get('pdf');
+  if (!(upload instanceof Blob)) {
+    fail(400, 'missing_pdf', 'A PDF file is required.');
+  }
+  const fileName = String((upload as any).name || formText(form, 'fileName') || 'illustration.pdf');
+  return {
+    file: upload,
+    fileName,
+    profileVersionId: formText(form, 'profileVersionId') || undefined,
+    notes: formText(form, 'notes'),
+    useFastModel: formBool(form, 'useFastModel'),
+    maxPages: formNumber(form, 'maxPages'),
+  };
+}
+
+async function runAdminTrainingExtraction(actor: any, profileId: string, request: Request, runType: 'admin_train' | 'admin_test') {
+  const profile = await getIllustrationProfile(profileId);
+  const upload = await readIllustrationPdfUpload(request);
+  const version = upload.profileVersionId
+    ? profile.versions.find(item => item.id === upload.profileVersionId)
+    : (profile.draftVersion || await ensureDraftIllustrationProfileVersion(actor, profileId));
+  if (!version) fail(400, 'missing_profile_version', 'A profile version is required.');
+
+  const pdf = await extractPdfTextLayout(upload.file, {
+    fileName: upload.fileName,
+    mimeType: upload.file.type || 'application/pdf',
+    maxPages: upload.maxPages,
+  });
+  const example = runType === 'admin_train'
+    ? await storeIllustrationTrainingExample(actor, profileId, {
+        profileVersionId: version.id,
+        fileName: upload.fileName,
+        fileSha256: pdf.fileSha256,
+        mimeType: pdf.mimeType,
+        fileSizeBytes: pdf.fileSizeBytes,
+        status: 'training',
+        notes: upload.notes,
+      })
+    : null;
+  const run = await recordIllustrationExtractionRun({
+    profileId,
+    profileVersionId: version.id,
+    trainingExampleId: example?.id || null,
+    runType,
+    status: 'pending',
+    inputSha256: pdf.fileSha256,
+    metadata: {
+      fileName: upload.fileName,
+      pageCount: pdf.pageCount,
+      extractedPageCount: pdf.pages.length,
+    },
+    createdBy: actor.id,
+  });
+
+  const result = await generateIllustrationTrainingProposal({
+    profileId,
+    profileVersionId: version.id,
+    exampleId: example?.id,
+    carrier: profile.carrier,
+    productName: profile.productName,
+    productType: profile.productType,
+    pdf,
+    useFastModel: upload.useFastModel,
+  });
+
+  if (result.status === 'failed') {
+    const updatedRun = await updateIllustrationExtractionRun(run.id, {
+      status: 'failed',
+      errorCode: result.code,
+      errorMessage: result.message,
+      metadata: {
+        fileName: upload.fileName,
+        pageCount: pdf.pageCount,
+        extractedPageCount: pdf.pages.length,
+      },
+    });
+    await audit(actor, `illustration_profile.${runType}`, 'illustration_profile', profileId, {
+      profileVersionId: version.id,
+      runId: run.id,
+      status: result.status,
+      exampleId: example?.id,
+    });
+    return { ...result, example, run: updatedRun };
+  }
+
+  result.proposal.runId = run.id;
+  const updatedRun = await updateIllustrationExtractionRun(run.id, {
+    status: result.status === 'succeeded' ? 'succeeded' : 'needs_review',
+    modelProvider: result.proposal.modelProvider,
+    modelName: result.proposal.modelName,
+    extractionConfidence: result.proposal.confidence,
+    normalizedExtract: result.proposal.normalizedExtract,
+    evidenceSnippets: result.proposal.normalizedExtract.evidence,
+    metadata: {
+      fileName: upload.fileName,
+      pageCount: pdf.pageCount,
+      extractedPageCount: pdf.pages.length,
+      fingerprintCount: result.proposal.fingerprints.length,
+      fieldMappingCount: result.proposal.fieldMappings.length,
+      projectionMappingCount: result.proposal.projectionMappings.length,
+      issueCount: result.proposal.issues.length,
+    },
+  });
+  await audit(actor, `illustration_profile.${runType}`, 'illustration_profile', profileId, {
+    profileVersionId: version.id,
+    runId: run.id,
+    status: result.status,
+    exampleId: example?.id,
+  });
+  return { ...result, example, run: updatedRun };
 }
 
 async function handleOAuthStart(provider: OAuthProvider, request: Request, url: URL) {
@@ -372,6 +517,67 @@ async function route(request: Request) {
 
   if (request.method === 'POST' && url.pathname === '/api/admin/paddle/sync') {
     return json(request, await syncPaddleSubscription(actor, await readJson(request)));
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/admin/illustration-profiles') {
+    return json(request, { profiles: await listIllustrationProfiles(url.searchParams.get('search') || '') });
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/admin/illustration-profiles') {
+    return json(request, { profile: await createIllustrationProfile(actor, await readJson(request)) }, 201);
+  }
+
+  const illustrationProfileId = idAt(parts, ['api', 'admin', 'illustration-profiles']);
+  if (illustrationProfileId && request.method === 'GET') {
+    return json(request, { profile: await getIllustrationProfile(illustrationProfileId) });
+  }
+
+  if (
+    parts.length === 5 &&
+    parts[0] === 'api' &&
+    parts[1] === 'admin' &&
+    parts[2] === 'illustration-profiles' &&
+    parts[4] === 'train' &&
+    request.method === 'POST'
+  ) {
+    return json(request, await runAdminTrainingExtraction(actor, parts[3], request, 'admin_train'));
+  }
+
+  if (
+    parts.length === 6 &&
+    parts[0] === 'api' &&
+    parts[1] === 'admin' &&
+    parts[2] === 'illustration-profiles' &&
+    parts[4] === 'examples' &&
+    request.method === 'PATCH'
+  ) {
+    return json(request, await applyIllustrationTrainingCorrection(actor, parts[3], parts[5], await readJson(request)));
+  }
+
+  if (
+    parts.length === 5 &&
+    parts[0] === 'api' &&
+    parts[1] === 'admin' &&
+    parts[2] === 'illustration-profiles' &&
+    parts[4] === 'test' &&
+    request.method === 'POST'
+  ) {
+    return json(request, await runAdminTrainingExtraction(actor, parts[3], request, 'admin_test'));
+  }
+
+  if (
+    parts.length === 5 &&
+    parts[0] === 'api' &&
+    parts[1] === 'admin' &&
+    parts[2] === 'illustration-profiles' &&
+    parts[4] === 'publish' &&
+    request.method === 'POST'
+  ) {
+    const body = await readJson<{ profileVersionId?: string }>(request);
+    const profile = await getIllustrationProfile(parts[3]);
+    const profileVersionId = body.profileVersionId || profile.draftVersion?.id;
+    if (!profileVersionId) fail(400, 'missing_profile_version', 'A draft profile version is required to publish.');
+    return json(request, { profile: await publishIllustrationProfileVersion(actor, parts[3], profileVersionId) });
   }
 
   if (request.method === 'GET' && url.pathname === '/api/admin/paddle/settings') {

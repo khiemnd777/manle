@@ -13,7 +13,7 @@ and response shape are all visible in that file.
 | User wording / keyword | Start here | Then check | Search anchors |
 | --- | --- | --- | --- |
 | route, endpoint, API not found, CORS | `src/index.ts`, `src/http/response.ts` | `src/config.ts` | `route`, `url.pathname`, `corsHeaders`, `allowedCorsOrigins`, `OPTIONS` |
-| env, port, cookie, Paddle config, Redis, database URL | `src/config.ts` | `src/db/client.ts` | `DATABASE_URL`, `API_HOST`, `API_PORT`, `FE_ORIGIN`, `ADMIN_ORIGIN`, `PADDLE_`, `REDIS_URL` |
+| env, port, cookie, Paddle/OpenAI config, Redis, database URL | `src/config.ts` | `src/db/client.ts` | `DATABASE_URL`, `API_HOST`, `API_PORT`, `FE_ORIGIN`, `ADMIN_ORIGIN`, `PADDLE_`, `OPENAI_`, `REDIS_URL` |
 | customer auth, signup, login, logout, refresh token, social login | `src/services/auth.ts` | `src/index.ts`, `db/migrations/002_refresh_tokens.sql`, `db/migrations/008_oauth_accounts.sql` | `signupCustomer`, `loginCustomer`, `startCustomerOAuth`, `completeCustomerOAuth`, `refreshCustomerSession`, `logoutSession`, `sessions`, `refresh_tokens`, `oauth_accounts` |
 | admin auth, bootstrap, first admin, normal system user login | `src/services/auth.ts`, `src/index.ts` | `../admin/src/api/client.ts` | `getAdminBootstrapStatus`, `createInitialAdmin`, `loginAdmin`, `requireSystemUser`, `/api/admin/bootstrap`, `/api/admin/auth/login` |
 | profile self-service, name/email/password | `src/services/auth.ts` | `../fe/src/account.ts` | `updateProfile`, `currentPassword`, `newPassword`, `email_exists`, `/api/profile` |
@@ -25,10 +25,12 @@ and response shape are all visible in that file.
 | admin customers, subscriptions, promotions, price tiers, entitlements, audit | `src/services/admin.ts` | `src/types/admin.ts`, `../admin/src/App.tsx` | `listCustomers`, `createCustomer`, `updateSubscription`, `upsertPriceTier`, `updateTierEntitlement`, `auditLogs` |
 | system users, admin/normal user role, reset password | `src/services/admin.ts`, `src/index.ts` | `src/services/auth.ts`, `../admin/src/App.tsx` | `listSystemUsers`, `createSystemUser`, `updateSystemUser`, `/api/admin/system-users`, `role in ('admin', 'user')` |
 | illustration profile training schema, PDF extraction profile storage | `db/migrations/012_illustration_profiles.sql` | `src/types/illustration.ts`, `src/services/illustrations.ts` | `illustration_profiles`, `illustration_profile_versions`, `illustration_training_examples`, `illustration_extraction_runs`, `illustration_profile_fingerprints`, `illustration_profile_field_mappings`, `illustration_profile_projection_mappings` |
+| admin illustration profile CRUD/train/test/publish APIs | `src/index.ts`, `src/services/illustrations.ts` | `src/services/pdfExtraction.ts`, `src/services/openaiIllustrationExtraction.ts`, future admin client | `/api/admin/illustration-profiles`, `listIllustrationProfiles`, `createIllustrationProfile`, `getIllustrationProfile`, `train`, `examples`, `test`, `publish` |
 | normalized illustration extraction contracts, profile mappings, runtime extraction statuses | `src/types/illustration.ts` | `../fe/src/pdf.ts`, `../admin/src/api/client.ts` | `IllustrationExtract`, `IllustrationRuntimeExtractResponse`, `IllustrationTrainingProposal`, `unsupported_profile`, `no_published_profile`, `needs_review`, `extraction_failed`, `validateIllustrationExtract` |
 | illustration profile repositories/services, draft/publish helpers, training examples, extraction run logs | `src/services/illustrations.ts` | `src/types/illustration.ts`, `src/index.ts` future routes | `listIllustrationProfiles`, `getIllustrationProfile`, `createIllustrationProfile`, `ensureDraftIllustrationProfileVersion`, `publishIllustrationProfileVersion`, `storeIllustrationTrainingExample`, `recordIllustrationExtractionRun` |
 | backend PDF text/layout extraction, PDF hash, page lines/items | `src/services/pdfExtraction.ts` | `src/types/illustration.ts`, `../fe/src/pdf.ts` parser reference | `extractPdfTextLayout`, `PdfExtractionResult`, `fileSha256`, `pages`, `lines`, `items`, `pdfjs-dist` |
 | deterministic published profile matching, carrier/product/form fingerprints | `src/services/illustrationMatching.ts` | `src/services/illustrations.ts`, `src/services/pdfExtraction.ts` | `matchPublishedIllustrationProfile`, `IllustrationProfileMatchCandidate`, `requiredMatched`, `matchedNonCarrierFingerprint`, `low_match_confidence` |
+| OpenAI admin training extraction, structured mapping proposal | `src/services/openaiIllustrationExtraction.ts` | `src/config.ts`, `src/types/illustration.ts`, `src/services/pdfExtraction.ts` | `generateIllustrationTrainingProposal`, `OPENAI_EXTRACTOR_MODEL`, `OPENAI_EXTRACTOR_RETRY_MODEL`, `manle_illustration_training_proposal`, `text.format`, `json_schema` |
 | database schema, table names, seed tier/entitlement values | `db/migrations/001_admin_billing.sql`, `db/migrations/002_refresh_tokens.sql` | service using the table | `create table`, `price_tiers`, `users`, `subscriptions`, `tier_entitlements`, `export_usage` |
 | rate limit, Redis, too many requests | `src/services/redis.ts`, `src/index.ts` | `src/config.ts` | `rateLimit`, `assertRateLimit`, `rate_limited`, `rl:login`, `rl:signup` |
 
@@ -89,6 +91,13 @@ before reaching these data-management branches.
 | `GET /api/admin/paddle/settings` | `getPaddleSettings` | Returns redacted Paddle API key, client token, and webhook secret status/source. |
 | `PATCH /api/admin/paddle/settings` | `updatePaddleSettings` | Updates or clears admin-stored Paddle credentials; audits `paddle.settings.update`. |
 | `POST /api/admin/paddle/sync` | `syncPaddleSubscription` | Sync by Paddle subscription ID or customer ID; audits action. |
+| `GET /api/admin/illustration-profiles?search=` | `listIllustrationProfiles` | Lists illustration training profiles with active published version summary when present. |
+| `POST /api/admin/illustration-profiles` | `createIllustrationProfile` | Creates draft profile and initial draft version; audits `illustration_profile.create`. |
+| `GET /api/admin/illustration-profiles/:id` | `getIllustrationProfile` | Returns profile detail with versions, mappings, fingerprints, and training examples. |
+| `POST /api/admin/illustration-profiles/:id/train` | `extractPdfTextLayout`, `storeIllustrationTrainingExample`, `generateIllustrationTrainingProposal` | Multipart `file`/`pdf` upload; stores example/run, calls OpenAI admin training, returns proposal. |
+| `PATCH /api/admin/illustration-profiles/:id/examples/:exampleId` | `applyIllustrationTrainingCorrection` | Stores admin-corrected output and optionally replaces draft fingerprints/mappings. |
+| `POST /api/admin/illustration-profiles/:id/test` | `extractPdfTextLayout`, `generateIllustrationTrainingProposal` | Multipart `file`/`pdf` upload; records admin test run without storing a training example. |
+| `POST /api/admin/illustration-profiles/:id/publish` | `publishIllustrationProfileVersion` | Publishes supplied `profileVersionId` or current draft after required mapping/fingerprint validation. |
 | `GET /api/admin/customers?search=` | `listCustomers` | Returns up to 200 customers with current tier, exports today, latest subscription status/tier. |
 | `POST /api/admin/customers` | `createCustomer` | Creates customer without password; audits `customer.create`. |
 | `PATCH /api/admin/customers/:id` | `updateCustomer` | Updates email/name/status/current tier/Paddle customer ID/notes; audits `customer.update`. |
@@ -163,8 +172,9 @@ before reaching these data-management branches.
 - Profile service/repository helpers: `listIllustrationProfiles`, `getIllustrationProfile`, `createIllustrationProfile`, `updateIllustrationProfile`.
 - Version helpers: `ensureDraftIllustrationProfileVersion`, `publishIllustrationProfileVersion`, `listPublishedIllustrationProfileVersions`, `getPublishedIllustrationProfileVersion`.
 - Mapping loaders: `listFingerprintsForVersion`, `listFieldMappingsForVersion`, `listProjectionMappingsForVersion`.
-- Training/run storage: `storeIllustrationTrainingExample`, `recordIllustrationExtractionRun`, `updateIllustrationExtractionRun`, `listIllustrationExtractionRuns`.
-- Admin mutations call `audit`; functions are not exposed as routes until the admin/runtime API slices.
+- Training/correction/run storage: `storeIllustrationTrainingExample`, `updateIllustrationTrainingExample`, `applyIllustrationTrainingCorrection`, `replaceIllustrationProfileVersionMappings`, `recordIllustrationExtractionRun`, `updateIllustrationExtractionRun`, `listIllustrationExtractionRuns`.
+- Publish validation: `validatePublishableIllustrationProfileVersion` requires required field mappings plus required carrier and non-carrier fingerprints.
+- Admin mutations call `audit`; profile CRUD/train/test/publish helpers are exposed through admin-only routes in `src/index.ts`.
 
 `src/services/pdfExtraction.ts`:
 
@@ -179,6 +189,14 @@ before reaching these data-management branches.
 - Supports `contains`, `equals`, `regex`, and `normalized_contains` match strategies with optional page hints.
 - Requires all required fingerprints, the published version `minMatchScore`, and at least one non-carrier fingerprint match before returning `matched`.
 - Returns explicit `no_published_profile`, `unsupported_profile`, or `low_match_confidence` blocked statuses for runtime callers.
+
+`src/services/openaiIllustrationExtraction.ts`:
+
+- `generateIllustrationTrainingProposal(input)` is the admin-training-only OpenAI service for profile mapping proposals.
+- Calls the OpenAI Responses API with Structured Outputs (`text.format` JSON schema) and does not run in generator/runtime extraction.
+- Reads `OPENAI_API_KEY`, `OPENAI_EXTRACTOR_FAST_MODEL`, `OPENAI_EXTRACTOR_MODEL`, `OPENAI_EXTRACTOR_RETRY_MODEL`, `OPENAI_EXTRACTOR_ALLOW_RETRY`, and `OPENAI_EXTRACTOR_ALLOW_ESCALATION` from `src/config.ts`.
+- Returns `succeeded`, `needs_review`, or `failed`; normalized output is validated with `validateIllustrationExtract`.
+- Sends PDF text excerpts to OpenAI but does not log/store full raw PDF text; evidence snippets are truncated before returning.
 
 `src/types/illustration.ts`:
 
@@ -270,6 +288,12 @@ Seed entitlement keys:
 - `PADDLE_CLIENT_TOKEN`
 - `PADDLE_ENV` default `sandbox`
 - `PADDLE_WEBHOOK_TOLERANCE_SECONDS` default `300`
+- `OPENAI_API_KEY`
+- `OPENAI_EXTRACTOR_FAST_MODEL` default `gpt-4.1-nano`
+- `OPENAI_EXTRACTOR_MODEL` default `gpt-4o-mini`
+- `OPENAI_EXTRACTOR_RETRY_MODEL` default `gpt-4.1-mini`
+- `OPENAI_EXTRACTOR_ALLOW_RETRY` default `true`
+- `OPENAI_EXTRACTOR_ALLOW_ESCALATION` default `false`
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`
 - `APPLE_OAUTH_CLIENT_ID`, `APPLE_OAUTH_TEAM_ID`, `APPLE_OAUTH_KEY_ID`, `APPLE_OAUTH_PRIVATE_KEY`, `APPLE_OAUTH_CLIENT_SECRET`, `APPLE_OAUTH_REDIRECT_URI`
 
