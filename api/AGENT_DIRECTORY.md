@@ -30,6 +30,7 @@ and response shape are all visible in that file.
 | illustration profile repositories/services, draft/publish helpers, training examples, extraction run logs | `src/services/illustrations.ts` | `src/types/illustration.ts`, `src/index.ts` future routes | `listIllustrationProfiles`, `getIllustrationProfile`, `createIllustrationProfile`, `ensureDraftIllustrationProfileVersion`, `publishIllustrationProfileVersion`, `storeIllustrationTrainingExample`, `recordIllustrationExtractionRun` |
 | backend PDF text/layout extraction, PDF hash, page lines/items | `src/services/pdfExtraction.ts` | `src/types/illustration.ts`, `../fe/src/pdf.ts` parser reference | `extractPdfTextLayout`, `PdfExtractionResult`, `fileSha256`, `pages`, `lines`, `items`, `pdfjs-dist` |
 | deterministic published profile matching, carrier/product/form fingerprints | `src/services/illustrationMatching.ts` | `src/services/illustrations.ts`, `src/services/pdfExtraction.ts` | `matchPublishedIllustrationProfile`, `IllustrationProfileMatchCandidate`, `requiredMatched`, `matchedNonCarrierFingerprint`, `low_match_confidence` |
+| runtime illustration extraction, published profile mapping application | `src/services/illustrationRuntimeExtraction.ts`, `src/index.ts` | `src/services/illustrationMatching.ts`, `src/services/pdfExtraction.ts`, `src/services/illustrations.ts`, `src/types/illustration.ts` | `/api/illustrations/extract`, `extractRuntimeIllustration`, `requireRuntimePdfFile`, `invalidRuntimeIllustrationUpload`, `runtime_extract`, `low_extraction_confidence`, `validation_failed` |
 | OpenAI admin training extraction, structured mapping proposal | `src/services/openaiIllustrationExtraction.ts` | `src/config.ts`, `src/types/illustration.ts`, `src/services/pdfExtraction.ts` | `generateIllustrationTrainingProposal`, `OPENAI_EXTRACTOR_MODEL`, `OPENAI_EXTRACTOR_RETRY_MODEL`, `manle_illustration_training_proposal`, `text.format`, `json_schema` |
 | database schema, table names, seed tier/entitlement values | `db/migrations/001_admin_billing.sql`, `db/migrations/002_refresh_tokens.sql` | service using the table | `create table`, `price_tiers`, `users`, `subscriptions`, `tier_entitlements`, `export_usage` |
 | rate limit, Redis, too many requests | `src/services/redis.ts`, `src/index.ts` | `src/config.ts` | `rateLimit`, `assertRateLimit`, `rate_limited`, `rl:login`, `rl:signup` |
@@ -61,6 +62,7 @@ Customer account and billing:
 | `POST /api/auth/refresh` | refresh cookie | `refreshCustomerSession` | Rotates refresh token and returns fresh cookies/account state. |
 | `POST /api/auth/logout` | optional cookie | `logoutSession` | Revokes access/refresh tokens and clears cookies. |
 | `POST /api/exports/authorize` | `requireUser` | `authorizeExport` | Increments quota if under limit; returns watermark/branding/style flags. |
+| `POST /api/illustrations/extract` | optional cookie, rate limited | `extractRuntimeIllustration` | Multipart PDF runtime extraction using published profiles only; no OpenAI call. Returns `IllustrationRuntimeExtractResponse`. |
 | `POST /api/billing/checkout` | `requireUser` | `getPaddleCheckoutConfig` | Returns Paddle client token, price ID, tier, discount, customer/customData. |
 | `GET /api/billing/paddle-client` | none | `getPaddleClientConfig` | Returns public Paddle environment and client-side token for payment-link checkout pages. |
 | `POST /api/billing/customer-portal` | `requireUser` | `createCustomerPortalSession` | Requires linked `paddle_customer_id`. |
@@ -189,6 +191,20 @@ before reaching these data-management branches.
 - Supports `contains`, `equals`, `regex`, and `normalized_contains` match strategies with optional page hints.
 - Requires all required fingerprints, the published version `minMatchScore`, and at least one non-carrier fingerprint match before returning `matched`.
 - Returns explicit `no_published_profile`, `unsupported_profile`, or `low_match_confidence` blocked statuses for runtime callers.
+
+`src/services/illustrationRuntimeExtraction.ts`:
+
+- `extractRuntimeIllustration(input)` powers `POST /api/illustrations/extract`.
+- Extracts PDF text/layout, matches only active published profile versions, and
+  applies approved field/projection mappings without OpenAI.
+- Supports deterministic mapping strategies: `label_value`, `regex`,
+  `table_cell`, `filename`, and `constant`; `manual` mappings are not used at
+  runtime.
+- Returns blocked runtime statuses for no published profile, unsupported
+  profile, low match confidence, low extraction confidence, validation failure,
+  invalid PDF, or parse failure.
+- Records `runtime_extract` rows with limited evidence snippets and metadata,
+  not full raw PDF text.
 
 `src/services/openaiIllustrationExtraction.ts`:
 

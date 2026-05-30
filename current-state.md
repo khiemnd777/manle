@@ -30,7 +30,12 @@ Current state:
   `admin/src/views/IllustrationProfilesView.tsx`.
 - Slice 11 admin mapping review/edit UI has been added in the illustration
   profile detail workbench.
-- Generator runtime integration has not been started yet.
+- Slice 12 generator runtime extraction API has been added at
+  `POST /api/illustrations/extract`.
+- Slice 13 generator upload flow now calls the backend runtime extraction API.
+- Slice 14 normalized generator extracts now render through the existing
+  right-side IUL/Term card state paths.
+- Full end-to-end regression QA remains for the next slices.
 - Generator runtime must not learn new carriers from customer uploads.
 - Generator runtime must only render when a published admin-approved profile
   matches the uploaded PDF.
@@ -176,9 +181,14 @@ Files changed:
   retry handling, output normalization, and validation.
 - `api/src/index.ts`: added admin-only profile list/create/detail routes for
   illustration profile workflows, plus train/correction/test/publish routes.
+- `api/src/index.ts`: added `POST /api/illustrations/extract` for runtime PDF
+  extraction using published profiles only.
 - `api/src/services/illustrations.ts`: added training example correction,
   mapping replacement, publish validation, and mapping/fingerprint persistence
   helpers.
+- `api/src/services/illustrationRuntimeExtraction.ts`: added runtime PDF
+  extraction, published profile matching, deterministic mapping application,
+  validation, blocked response handling, and runtime extraction run logging.
 - `admin/src/api/client.ts`: added typed illustration profile contracts and
   API methods for list/create/detail/train/correct/test/publish workflows.
 - `admin/src/App.tsx`: wired the illustration profiles view into lazy routing
@@ -198,6 +208,16 @@ Files changed:
   mapping table, evidence, and low-confidence row styles.
 - `admin/AGENT_DIRECTORY.md`: documented the new admin client methods and
   illustration UI workflows.
+- `fe/src/pdf.ts`: changed generator PDF uploads to call
+  `POST /api/illustrations/extract`, map successful `IllustrationExtract`
+  responses into the existing autofill flow, and block unsupported/needs-review
+  responses without overwriting card data.
+- `fe/src/pdf.ts`: maps normalized IUL projection rows into
+  `state.actualCSV`, `state.actualPVMap`, `state.actualDBMap`, and
+  `state.ages`; Term uploads keep Term fields separate and clear stale IUL
+  projection cache.
+- `fe/AGENT_DIRECTORY.md`: documented the runtime extraction API touchpoint and
+  upload behavior.
 - `api/src/config.ts`: added `OPENAI_*` extractor configuration defaults.
 - `.env.example`: documented OpenAI extractor variables.
 - `api/package.json`: added `pdfjs-dist` dependency for backend extraction.
@@ -251,6 +271,12 @@ Validation run:
   list/create/detail UI.
 - `cd admin && bun run build`: passed after adding Slice 11 admin mapping
   review/edit UI.
+- `cd api && bun run build`: passed after adding Slice 12 generator runtime
+  extraction API.
+- `cd fe && bun run build`: passed after adding Slice 13 generator upload flow
+  runtime API integration.
+- `cd fe && bun run build`: passed after adding Slice 14 normalized render
+  mapping.
 - `cd api && bun run db:migrate`: attempted, but local Postgres was not
   reachable, so the migration was not applied locally.
 
@@ -282,9 +308,9 @@ Implementation progress ledger:
 - [x] Slice 9: Add admin API client types and methods.
 - [x] Slice 10: Add admin profile list/create/detail UI.
 - [x] Slice 11: Add admin mapping review/edit UI.
-- [ ] Slice 12: Add generator runtime extraction API.
-- [ ] Slice 13: Update generator upload flow to call backend extraction.
-- [ ] Slice 14: Render normalized IUL/Term extracts into the right-side card.
+- [x] Slice 12: Add generator runtime extraction API.
+- [x] Slice 13: Update generator upload flow to call backend extraction.
+- [x] Slice 14: Render normalized IUL/Term extracts into the right-side card.
 - [ ] Slice 15: Regression verify with Cindy and Lauren PDFs.
 - [ ] Slice 16: Final build validation and handoff update.
 
@@ -842,6 +868,24 @@ Validation:
 Dependencies:
 - Slices 5, 8.
 
+Implemented:
+- Added `api/src/services/illustrationRuntimeExtraction.ts` with
+  `extractRuntimeIllustration` for runtime-only extraction.
+- Added `POST /api/illustrations/extract` in `api/src/index.ts`; it accepts a
+  multipart `file` or `pdf`, optional `maxPages`, optional `productType`, and
+  uses optional current-user identity only for run ownership.
+- Runtime extraction parses PDF text/layout, matches only active published
+  profile versions, applies approved deterministic mappings, validates the
+  normalized extract, and records `runtime_extract` rows.
+- Runtime does not call OpenAI. It returns blocked statuses for no published
+  profile, unsupported/low-confidence matches, low extraction confidence,
+  validation failures, invalid PDFs, and parse failures.
+- Evidence in responses and run logs is limited to approved snippets and mapped
+  field snippets, not full raw PDF text.
+
+Validation:
+- `cd api && bun run build`: passed.
+
 ## Slice 13: Generator upload flow calls backend extraction
 Labels: area:fe, area:api, area:pdf, risk:contract, risk:parser, type:feature
 
@@ -871,6 +915,22 @@ Validation:
 
 Dependencies:
 - Slice 12.
+
+Implemented:
+- Updated `fe/src/pdf.ts` so `handlePdfUpload` calls
+  `POST /api/illustrations/extract` with multipart `file` and `productType`
+  from the upload zone.
+- Added runtime response handling that maps a successful `IllustrationExtract`
+  into the existing `applyExtracted` flow, including shared client/risk fields,
+  IUL/Term policy fields, agent fields, and available projection rows.
+- Blocked statuses such as no published profile, unsupported profile,
+  low-confidence match, needs-review/profile-update, invalid PDF, and parse
+  failure show upload-zone errors and do not overwrite existing form/card data.
+- Existing local parser helpers remain in place for now, but generator upload
+  submission is backend-runtime-first.
+
+Validation:
+- `cd fe && bun run build`: passed.
 
 ## Slice 14: Render normalized IUL/Term extracts into right-side card
 Labels: area:fe, area:pdf, area:export, risk:visual, risk:parser, type:feature
@@ -905,6 +965,23 @@ Validation:
 
 Dependencies:
 - Slice 13.
+
+Implemented:
+- Normalized runtime projection rows now coerce numeric values conservatively,
+  support `cashValue` fallback values, and drop invalid rows.
+- IUL runtime extracts populate exact CSV/PV/DB maps and replace `state.ages`
+  with the extracted projection ages before `renderAgeList()` and `render()`.
+- Term runtime extracts continue to fill `termFaceAmount`,
+  `termMonthlyPrem`, and `termLength` through `applyExtracted`, without writing
+  IUL policy fields.
+- Runtime `productType` now takes priority over the upload zone when choosing
+  IUL versus Term policy fields, so an IUL PDF dropped in the Term zone still
+  fills IUL fields.
+- Term uploads and IUL uploads without valid projection rows clear stale
+  PDF-derived projection maps.
+
+Validation:
+- `cd fe && bun run build`: passed.
 
 ## Slice 15: Regression verify with Cindy and Lauren PDFs
 Labels: area:pdf, area:fe, area:api, area:admin, risk:parser, risk:visual, type:test

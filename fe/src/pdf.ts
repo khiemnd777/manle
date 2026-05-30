@@ -4,6 +4,19 @@ import { refreshCustomDropdowns } from './customDropdown';
 import { formatPhone, render, renderAgeList, renderAgentList, setTab } from './render';
 
 /* ===================== PDF AUTO-FILL ===================== */
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8787';
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);
+
+function resolveApiBase() {
+  const url = new URL(RAW_API_BASE);
+  if (LOOPBACK_HOSTS.has(url.hostname) && LOOPBACK_HOSTS.has(window.location.hostname)) {
+    url.hostname = window.location.hostname;
+  }
+  return url.origin;
+}
+
+const API_BASE = resolveApiBase();
+
 // Full state name → 2-letter code
 const STATE_MAP = {
   'alabama':'AL','alaska':'AK','arizona':'AZ','arkansas':'AR','california':'CA',
@@ -112,6 +125,128 @@ export function parseFilename(filename) {
   }
 
   return out;
+}
+
+function runtimeBlockedMessage(payload: any) {
+  const code = payload?.code || payload?.error?.code || payload?.status || 'extraction_failed';
+  const message = payload?.message || payload?.error?.message;
+  if (code === 'no_published_profile') {
+    return 'Chưa có illustration profile đã publish cho runtime. Hãy train và publish profile trong Admin trước.';
+  }
+  if (code === 'unsupported_profile' || code === 'low_match_confidence') {
+    return 'PDF này chưa khớp với profile đã publish. Không tự động điền để tránh sai dữ liệu.';
+  }
+  if (code === 'needs_review' || code === 'profile_update_required' || code === 'low_extraction_confidence' || code === 'validation_failed') {
+    return 'Profile đã khớp nhưng mapping cần admin review/update trước khi dùng cho generator.';
+  }
+  if (code === 'invalid_pdf' || code === 'pdf_parse_failed') {
+    return message || 'Không đọc được file PDF.';
+  }
+  return message || 'Không thể extract illustration từ PDF này.';
+}
+
+async function extractRuntimeIllustration(file, productType) {
+  const form = new FormData();
+  form.set('file', file);
+  form.set('productType', productType);
+  const response = await fetch(`${API_BASE}/api/illustrations/extract`, {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(runtimeBlockedMessage(payload));
+  }
+  if (payload?.status !== 'succeeded') {
+    throw new Error(runtimeBlockedMessage(payload));
+  }
+  return payload;
+}
+
+function finiteNumber(value: unknown) {
+  if (value == null) return undefined;
+  if (typeof value === 'string') {
+    const cleaned = value.trim().replace(/[$,\s]/g, '');
+    if (!cleaned) return undefined;
+    const numeric = Number(cleaned);
+    return Number.isFinite(numeric) ? numeric : undefined;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function runtimeExtractToAutofill(extract: any) {
+  const policy = extract?.policy || {};
+  const client = extract?.client || {};
+  const agent = extract?.agent || {};
+  const rows = Array.isArray(extract?.projections)
+    ? extract.projections
+        .map((row) => {
+          const policyValue = finiteNumber(row.policyValue ?? row.cashValue ?? row.cashSurrenderValue);
+          const cashSurrenderValue = finiteNumber(row.cashSurrenderValue ?? row.cashValue ?? row.policyValue);
+          return {
+            year: finiteNumber(row.year),
+            age: finiteNumber(row.age),
+            policyValue,
+            cashSurrenderValue,
+            deathBenefit: finiteNumber(row.deathBenefit),
+          };
+        })
+        .filter(row =>
+          Number.isFinite(row.age) && row.age > 0 && row.age <= 130 &&
+          (Number.isFinite(row.policyValue) || Number.isFinite(row.cashSurrenderValue) || Number.isFinite(row.deathBenefit))
+        )
+    : [];
+
+  return {
+    data: {
+      productType: extract?.productType,
+      fullName: client.fullName,
+      age: client.age,
+      gender: client.gender,
+      state: client.state ? normalizeState(client.state) : '',
+      riskClass: client.riskClass,
+      face: policy.faceAmount,
+      monthlyPrem: policy.monthlyPremium,
+      payYears: policy.payYears,
+      termLength: policy.termLength,
+      agentName: agent.name,
+      agentPhone: agent.phone,
+    },
+    rows,
+  };
+}
+
+function projectionMap(rows: any[], key: 'cashSurrenderValue' | 'policyValue' | 'deathBenefit') {
+  const entries = rows
+    .filter(row => Number.isFinite(row.age) && Number.isFinite(row[key]))
+    .map(row => [row.age, row[key]] as [number, number]);
+  return entries.length > 0 ? new Map(entries) : null;
+}
+
+function projectionAges(rows: any[]) {
+  return Array.from(new Set(
+    rows
+      .map(row => finiteNumber(row.age))
+      .filter(age => Number.isFinite(age) && age > 0 && age <= 121)
+  )).sort((a: number, b: number) => a - b);
+}
+
+function applyRuntimeProjectionRows(rows: any[], productType) {
+  state.actualCSV = state.actualPVMap = state.actualDBMap = null;
+  if (productType === 'term' || rows.length === 0) return 0;
+
+  const ages = projectionAges(rows);
+  if (ages.length === 0) return 0;
+
+  state.actualCSV = projectionMap(rows, 'cashSurrenderValue');
+  state.actualPVMap = projectionMap(rows, 'policyValue');
+  state.actualDBMap = projectionMap(rows, 'deathBenefit');
+  state.ages = ages;
+  // Approved IUL projection mappings represent illustrated current values.
+  $('rate').value = '7.25';
+  return ages.length;
 }
 
 // Pull text from first N pages of a PDF
@@ -323,7 +458,7 @@ export function mergeExtracted(fromFile: any, fromContent: any) {
 // targetTab: 'iul' | 'term' — controls which premium/face fields to write
 export function applyExtracted(data: any, targetTab) {
   const filled = [];
-  const isTermUpload = (targetTab === 'term') || (data.productType === 'term');
+  const isTermUpload = data.productType === 'term' || (!data.productType && targetTab === 'term');
 
   if (data.fullName) {
     const parts = data.fullName.trim().split(/\s+/);
@@ -395,12 +530,12 @@ export function applyExtracted(data: any, targetTab) {
     filled.push('Premium');
   }
 
-  if (data.payYears) {
+  if (data.payYears && !isTermUpload) {
     $('premYears').value = data.payYears;
     filled.push('Pay Years');
   }
 
-  if (data.termLength) {
+  if (data.termLength && isTermUpload) {
     if ($('termLength')) {
       $('termLength').value = data.termLength;
       filled.push(`Term ${data.termLength}Y`);
@@ -448,37 +583,16 @@ export async function handlePdfUpload(file, forTab) {
   fileNameEl.innerHTML = `<span class="upload-spinner"></span>Đang đọc file...`;
 
   try {
-    const fromFile = parseFilename(file.name);
-
-    let fromContent = {};
-    let extractedRows = [];
-    try {
-      const result = await extractPdfData(file);
-      fromContent = parsePdfText(result.text);
-      extractedRows = result.rows;
-    } catch (err) {
-      console.warn('PDF text extraction failed, falling back to filename only:', err);
-    }
-
-    const merged = mergeExtracted(fromFile, fromContent);
+    const runtimeResult = await extractRuntimeIllustration(file, forTab);
+    const { data: merged, rows: extractedRows } = runtimeExtractToAutofill(runtimeResult.extract);
 
     if (Object.keys(merged).length === 0 && extractedRows.length === 0) {
       throw new Error('Không nhận diện được dữ liệu từ file. Hãy điền thủ công.');
     }
 
-    // Populate exact CSV/PV/DB lookups from PDF tabular detail
-    if (extractedRows.length > 0) {
-      state.actualCSV   = new Map(extractedRows.map(r => [r.age, r.cashSurrenderValue]));
-      state.actualPVMap = new Map(extractedRows.map(r => [r.age, r.policyValue]));
-      state.actualDBMap = new Map(extractedRows.map(r => [r.age, r.deathBenefit]));
-      // Tabular detail "Non-Guaranteed Current Projections" column is at 7.25%
-      $('rate').value = '7.25';
-    } else {
-      state.actualCSV = state.actualPVMap = state.actualDBMap = null;
-    }
-
     const filled = applyExtracted(merged, forTab);
-    if (extractedRows.length > 0) filled.push(`${extractedRows.length} CSV rows`);
+    const projectionRowCount = applyRuntimeProjectionRows(extractedRows, merged.productType || forTab);
+    if (projectionRowCount > 0) filled.push(`${projectionRowCount} projection rows`);
 
     // Update UI
     zone.classList.remove('parsing');

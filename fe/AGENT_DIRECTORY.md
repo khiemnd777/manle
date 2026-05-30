@@ -199,6 +199,20 @@ Frontend uses `VITE_API_BASE_URL` or `http://127.0.0.1:8787`.
 - `GET /api/billing/paddle-client`
 - `POST /api/billing/customer-portal`
 
+`src/pdf.ts` owns the generator runtime illustration extraction call:
+
+- `POST /api/illustrations/extract`
+- Multipart `file`, plus `productType` from the upload zone (`iul` or `term`).
+- A `succeeded` response maps `IllustrationExtract` into the existing
+  `applyExtracted` flow and renders the card.
+- IUL projection rows populate `state.actualCSV`, `state.actualPVMap`,
+  `state.actualDBMap`, and `state.ages` so the right-side card renders
+  extracted cash/death-benefit rows; Term uploads clear IUL projection cache.
+- Blocked runtime statuses such as `no_published_profile`,
+  `unsupported_profile`, `low_match_confidence`, `needs_review`, and
+  `validation_failed` show upload-zone errors and do not overwrite form/card
+  data.
+
 If account shape changes, update:
 
 - `src/account.ts` `AccountState`
@@ -256,6 +270,10 @@ Upload zones:
 
 - `handlePdfUpload(file, 'iul')`
 - `handlePdfUpload(file, 'term')`
+- `extractRuntimeIllustration(file, productType)` calls
+  `/api/illustrations/extract` before any form fields are written.
+- `runtimeExtractToAutofill(extract)` maps the normalized runtime response to
+  the existing autofill shape.
 - `applyExtracted(data, targetTab)`
 - Term PDF switches tab to `term`; IUL PDF switches to `iul`.
 

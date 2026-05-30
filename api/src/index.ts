@@ -67,6 +67,11 @@ import {
 import { extractPdfTextLayout } from './services/pdfExtraction';
 import { generateIllustrationTrainingProposal } from './services/openaiIllustrationExtraction';
 import {
+  extractRuntimeIllustration,
+  invalidRuntimeIllustrationUpload,
+  requireRuntimePdfFile,
+} from './services/illustrationRuntimeExtraction';
+import {
   deleteEmailTemplate,
   getEmailSettings,
   getEmailTemplate,
@@ -86,6 +91,7 @@ import {
   updatePaddleSettings,
 } from './services/paddle';
 import { rateLimit } from './services/redis';
+import type { IllustrationRuntimeErrorCode } from './types/illustration';
 
 function pathParts(url: URL) {
   return url.pathname.split('/').filter(Boolean);
@@ -177,6 +183,11 @@ function formNumber(form: FormData, key: string) {
   if (!value) return undefined;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function formIllustrationProductType(form: FormData) {
+  const value = formText(form, 'productType').toLowerCase();
+  return value === 'iul' || value === 'term' ? value : undefined;
 }
 
 async function readIllustrationPdfUpload(request: Request) {
@@ -291,6 +302,37 @@ async function runAdminTrainingExtraction(actor: any, profileId: string, request
     exampleId: example?.id,
   });
   return { ...result, example, run: updatedRun };
+}
+
+function runtimeUploadErrorCode(code: string): IllustrationRuntimeErrorCode | null {
+  if (code === 'invalid_pdf' || code === 'pdf_parse_failed') return code;
+  if (code === 'invalid_mime_type' || code === 'invalid_pdf_input' || code === 'invalid_page_limit' || code === 'missing_pdf') {
+    return 'invalid_pdf';
+  }
+  return null;
+}
+
+async function handleRuntimeIllustrationExtract(request: Request) {
+  try {
+    await assertRateLimit(request, 'illustration-extract', clientIp(request), 20, 300);
+    const form = await request.formData();
+    const upload = requireRuntimePdfFile(form.get('file') || form.get('pdf'));
+    const fileName = String((upload as any).name || formText(form, 'fileName') || 'illustration.pdf');
+    const actor = await currentUser(request);
+    return json(request, await extractRuntimeIllustration({
+      file: upload,
+      fileName,
+      productType: formIllustrationProductType(form),
+      maxPages: formNumber(form, 'maxPages'),
+      createdBy: actor?.id || null,
+    }));
+  } catch (error) {
+    if (error instanceof AppError) {
+      const code = runtimeUploadErrorCode(error.code);
+      if (code) return json(request, invalidRuntimeIllustrationUpload(code, error.message), error.status);
+    }
+    throw error;
+  }
 }
 
 async function handleOAuthStart(provider: OAuthProvider, request: Request, url: URL) {
@@ -442,6 +484,10 @@ async function route(request: Request) {
   if (request.method === 'POST' && url.pathname === '/api/webhooks/paddle') {
     const rawBody = await request.text();
     return json(request, await handlePaddleWebhook(rawBody, request.headers.get('Paddle-Signature')));
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/illustrations/extract') {
+    return await handleRuntimeIllustrationExtract(request);
   }
 
   if (request.method === 'GET' && url.pathname === '/api/admin/bootstrap/status') {
