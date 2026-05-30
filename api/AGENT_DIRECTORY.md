@@ -24,6 +24,7 @@ and response shape are all visible in that file.
 | Paddle webhook, subscription sync, duplicate events | `src/services/paddle.ts` | `db/migrations/001_admin_billing.sql`, `src/services/admin.ts` | `verifyPaddleWebhook`, `handlePaddleWebhook`, `paddle_events`, `upsertPaddleSubscription`, `subscription.created` |
 | admin customers, subscriptions, promotions, price tiers, entitlements, audit | `src/services/admin.ts` | `src/types/admin.ts`, `../admin/src/App.tsx` | `listCustomers`, `createCustomer`, `updateSubscription`, `upsertPriceTier`, `updateTierEntitlement`, `auditLogs` |
 | system users, admin/normal user role, reset password | `src/services/admin.ts`, `src/index.ts` | `src/services/auth.ts`, `../admin/src/App.tsx` | `listSystemUsers`, `createSystemUser`, `updateSystemUser`, `/api/admin/system-users`, `role in ('admin', 'user')` |
+| illustration profile training schema, PDF extraction profile storage | `db/migrations/012_illustration_profiles.sql` | future profile repositories/services | `illustration_profiles`, `illustration_profile_versions`, `illustration_training_examples`, `illustration_extraction_runs`, `illustration_profile_fingerprints`, `illustration_profile_field_mappings`, `illustration_profile_projection_mappings` |
 | database schema, table names, seed tier/entitlement values | `db/migrations/001_admin_billing.sql`, `db/migrations/002_refresh_tokens.sql` | service using the table | `create table`, `price_tiers`, `users`, `subscriptions`, `tier_entitlements`, `export_usage` |
 | rate limit, Redis, too many requests | `src/services/redis.ts`, `src/index.ts` | `src/config.ts` | `rateLimit`, `assertRateLimit`, `rate_limited`, `rl:login`, `rl:signup` |
 
@@ -176,6 +177,7 @@ Migrations:
 - `db/migrations/009_custom_template_entitlement.sql`
 - `db/migrations/010_paddle_settings.sql`
 - `db/migrations/011_paddle_settings_tokens.sql`
+- `db/migrations/012_illustration_profiles.sql`
 
 Tables:
 
@@ -192,6 +194,13 @@ Tables:
 - `export_usage`: per-user per-Postgres-current-date export count.
 - `paddle_events`: idempotency store for webhook event IDs.
 - `audit_logs`: admin mutation audit trail.
+- `illustration_profiles`: carrier/product identity, product type, and active/draft/archive status.
+- `illustration_profile_versions`: draft/published/archived profile configs with match and extraction confidence thresholds.
+- `illustration_training_examples`: uploaded sample PDF metadata, hashes, corrected extracts, and evidence snippets.
+- `illustration_extraction_runs`: admin/runtime extraction run logs, status, confidence, normalized output, and limited evidence.
+- `illustration_profile_fingerprints`: approved carrier/product/form/version match markers for profile versions.
+- `illustration_profile_field_mappings`: approved field-level source selectors and transforms for profile versions.
+- `illustration_profile_projection_mappings`: approved projection table or summary-block mappings for profile versions.
 
 Seed tier codes:
 
