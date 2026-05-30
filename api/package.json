@@ -9,6 +9,8 @@
     "start": "bun src/index.ts",
     "build": "bun build src/index.ts --target bun --outdir dist",
     "db:migrate": "bun src/db/migrate.ts"
+  },
+  "dependencies": {
+    "pdfjs-dist": "3.11.174"
   }
 }
-

@@ -24,7 +24,11 @@ and response shape are all visible in that file.
 | Paddle webhook, subscription sync, duplicate events | `src/services/paddle.ts` | `db/migrations/001_admin_billing.sql`, `src/services/admin.ts` | `verifyPaddleWebhook`, `handlePaddleWebhook`, `paddle_events`, `upsertPaddleSubscription`, `subscription.created` |
 | admin customers, subscriptions, promotions, price tiers, entitlements, audit | `src/services/admin.ts` | `src/types/admin.ts`, `../admin/src/App.tsx` | `listCustomers`, `createCustomer`, `updateSubscription`, `upsertPriceTier`, `updateTierEntitlement`, `auditLogs` |
 | system users, admin/normal user role, reset password | `src/services/admin.ts`, `src/index.ts` | `src/services/auth.ts`, `../admin/src/App.tsx` | `listSystemUsers`, `createSystemUser`, `updateSystemUser`, `/api/admin/system-users`, `role in ('admin', 'user')` |
-| illustration profile training schema, PDF extraction profile storage | `db/migrations/012_illustration_profiles.sql` | future profile repositories/services | `illustration_profiles`, `illustration_profile_versions`, `illustration_training_examples`, `illustration_extraction_runs`, `illustration_profile_fingerprints`, `illustration_profile_field_mappings`, `illustration_profile_projection_mappings` |
+| illustration profile training schema, PDF extraction profile storage | `db/migrations/012_illustration_profiles.sql` | `src/types/illustration.ts`, `src/services/illustrations.ts` | `illustration_profiles`, `illustration_profile_versions`, `illustration_training_examples`, `illustration_extraction_runs`, `illustration_profile_fingerprints`, `illustration_profile_field_mappings`, `illustration_profile_projection_mappings` |
+| normalized illustration extraction contracts, profile mappings, runtime extraction statuses | `src/types/illustration.ts` | `../fe/src/pdf.ts`, `../admin/src/api/client.ts` | `IllustrationExtract`, `IllustrationRuntimeExtractResponse`, `IllustrationTrainingProposal`, `unsupported_profile`, `no_published_profile`, `needs_review`, `extraction_failed`, `validateIllustrationExtract` |
+| illustration profile repositories/services, draft/publish helpers, training examples, extraction run logs | `src/services/illustrations.ts` | `src/types/illustration.ts`, `src/index.ts` future routes | `listIllustrationProfiles`, `getIllustrationProfile`, `createIllustrationProfile`, `ensureDraftIllustrationProfileVersion`, `publishIllustrationProfileVersion`, `storeIllustrationTrainingExample`, `recordIllustrationExtractionRun` |
+| backend PDF text/layout extraction, PDF hash, page lines/items | `src/services/pdfExtraction.ts` | `src/types/illustration.ts`, `../fe/src/pdf.ts` parser reference | `extractPdfTextLayout`, `PdfExtractionResult`, `fileSha256`, `pages`, `lines`, `items`, `pdfjs-dist` |
+| deterministic published profile matching, carrier/product/form fingerprints | `src/services/illustrationMatching.ts` | `src/services/illustrations.ts`, `src/services/pdfExtraction.ts` | `matchPublishedIllustrationProfile`, `IllustrationProfileMatchCandidate`, `requiredMatched`, `matchedNonCarrierFingerprint`, `low_match_confidence` |
 | database schema, table names, seed tier/entitlement values | `db/migrations/001_admin_billing.sql`, `db/migrations/002_refresh_tokens.sql` | service using the table | `create table`, `price_tiers`, `users`, `subscriptions`, `tier_entitlements`, `export_usage` |
 | rate limit, Redis, too many requests | `src/services/redis.ts`, `src/index.ts` | `src/config.ts` | `rateLimit`, `assertRateLimit`, `rate_limited`, `rl:login`, `rl:signup` |
 
@@ -153,6 +157,35 @@ before reaching these data-management branches.
 `src/services/redis.ts`:
 
 - `rateLimit(key, max, windowSeconds)` uses Redis if available. If Redis is not reachable it currently allows the request.
+
+`src/services/illustrations.ts`:
+
+- Profile service/repository helpers: `listIllustrationProfiles`, `getIllustrationProfile`, `createIllustrationProfile`, `updateIllustrationProfile`.
+- Version helpers: `ensureDraftIllustrationProfileVersion`, `publishIllustrationProfileVersion`, `listPublishedIllustrationProfileVersions`, `getPublishedIllustrationProfileVersion`.
+- Mapping loaders: `listFingerprintsForVersion`, `listFieldMappingsForVersion`, `listProjectionMappingsForVersion`.
+- Training/run storage: `storeIllustrationTrainingExample`, `recordIllustrationExtractionRun`, `updateIllustrationExtractionRun`, `listIllustrationExtractionRuns`.
+- Admin mutations call `audit`; functions are not exposed as routes until the admin/runtime API slices.
+
+`src/services/pdfExtraction.ts`:
+
+- Backend PDF.js loader and `extractPdfTextLayout(input, options)` for File/Blob/ArrayBuffer/Uint8Array inputs.
+- Returns SHA-256, file size, page count, combined text, per-page text, grouped lines, and positioned text items.
+- Uses `pdfjs-dist` through runtime dynamic import so the API bundle does not inline optional PDF.js rendering dependencies.
+- Keeps raw PDF text out of logs; callers should store only limited evidence snippets.
+
+`src/services/illustrationMatching.ts`:
+
+- `matchPublishedIllustrationProfile(pdf, { productType })` loads published profiles and scores approved fingerprints against extracted PDF text.
+- Supports `contains`, `equals`, `regex`, and `normalized_contains` match strategies with optional page hints.
+- Requires all required fingerprints, the published version `minMatchScore`, and at least one non-carrier fingerprint match before returning `matched`.
+- Returns explicit `no_published_profile`, `unsupported_profile`, or `low_match_confidence` blocked statuses for runtime callers.
+
+`src/types/illustration.ts`:
+
+- Normalized extract contract: `IllustrationExtract`, IUL/Term client, policy, projection, agent, evidence, match score, and field confidence shapes.
+- Profile/admin contracts: profile summaries/details, fingerprints, field mappings, projection mappings, training uploads, and OpenAI training proposals.
+- Runtime response contract: `IllustrationRuntimeExtractResponse` with explicit `unsupported_profile`, `no_published_profile`, `needs_review`, and `extraction_failed` statuses.
+- Validation helpers: `validateIllustrationExtract`, confidence/product/gender guards, required field paths, and runtime-to-run status mapping.
 
 HTTP/config/db:
 

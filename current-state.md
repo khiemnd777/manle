@@ -11,6 +11,14 @@ card output used for PDF/PNG/JPG export.
 Current state:
 - Planning and requirements are complete.
 - Slice 1 database schema implementation has been added.
+- Slice 2 API/domain extraction contracts have been added under
+  `api/src/types/illustration.ts`.
+- Slice 3 profile repository/service skeletons have been added under
+  `api/src/services/illustrations.ts`.
+- Slice 4 backend PDF text/layout extraction has been added under
+  `api/src/services/pdfExtraction.ts`.
+- Slice 5 deterministic published profile fingerprint matching has been added
+  under `api/src/services/illustrationMatching.ts`.
 - API routes, admin UI, OpenAI services, and generator runtime integration have
   not been started yet.
 - Generator runtime must not learn new carriers from customer uploads.
@@ -142,7 +150,21 @@ Files changed:
 - `current-state.md`: added this implementation handoff and production plan.
 - `api/db/migrations/012_illustration_profiles.sql`: added additive profile
   storage schema for illustration profile training and runtime extraction.
-- `api/AGENT_DIRECTORY.md`: documented the new migration and table ownership.
+- `api/src/types/illustration.ts`: added normalized extract contracts, mapping
+  contracts, admin training/runtime response contracts, PDF layout contracts,
+  and validation helpers.
+- `api/src/services/illustrations.ts`: added profile list/detail/create/update,
+  draft/publish version helpers, mapping loaders, training example storage, and
+  extraction run storage/update/list helpers.
+- `api/src/services/pdfExtraction.ts`: added backend PDF.js text/layout
+  extraction with SHA-256, page text, line groups, and positioned text items.
+- `api/src/services/illustrationMatching.ts`: added deterministic published
+  profile fingerprint matching with required/non-carrier fingerprint guards and
+  blocked runtime statuses.
+- `api/package.json`: added `pdfjs-dist` dependency for backend extraction.
+- `api/bun.lock`: recorded the API dependency lockfile.
+- `api/AGENT_DIRECTORY.md`: documented the new migration, type contracts, and
+  service/table ownership.
 
 Validation run:
 - `git status --short`: clean before this file was created.
@@ -150,6 +172,28 @@ Validation run:
   harnesses for the Cindy and Lauren sample PDFs; those temporary files were
   deleted.
 - `cd api && bun run build`: passed after adding the migration.
+- `cd api && bun build src/types/illustration.ts --target bun --outdir
+  /private/tmp/manle-api-contract-build`: passed after adding Slice 2
+  contracts.
+- `cd api && bun run build`: passed after adding Slice 2 contracts.
+- `cd api && bun build src/services/illustrations.ts --target bun --outdir
+  /private/tmp/manle-api-illustrations-build`: passed after adding Slice 3
+  service skeletons.
+- `cd api && bun run build`: passed after adding Slice 3 service skeletons.
+- `cd api && bun install`: passed after adding `pdfjs-dist` (required
+  escalated sandbox permission because Bun could not write its temp/cache files
+  in the default sandbox).
+- `cd api && bun build src/services/pdfExtraction.ts --target bun --outdir
+  /private/tmp/manle-api-pdf-extraction-build`: passed after adding Slice 4
+  PDF extraction.
+- `cd api && bun --eval ...extractPdfTextLayout(...)`: passed on Cindy
+  Transamerica FFIUL and Lauren FlexLife sample PDFs with `maxPages: 3`,
+  returning file hash, page count, extracted page count, and first page text.
+- `cd api && bun run build`: passed after adding Slice 4 PDF extraction.
+- `cd api && bun build src/services/illustrationMatching.ts --target bun
+  --outdir /private/tmp/manle-api-matching-build`: passed after adding Slice 5
+  matcher.
+- `cd api && bun run build`: passed after adding Slice 5 matcher.
 - `cd api && bun run db:migrate`: attempted, but local Postgres was not
   reachable, so the migration was not applied locally.
 
@@ -171,10 +215,10 @@ Risks:
 Implementation progress ledger:
 - [x] Slice 0: Capture requirements and production plan in this file.
 - [x] Slice 1: Add DB migration for profile storage.
-- [ ] Slice 2: Add API/domain contracts for normalized extraction.
-- [ ] Slice 3: Add profile repositories and service skeletons.
-- [ ] Slice 4: Add backend PDF text/layout extraction service.
-- [ ] Slice 5: Add deterministic profile fingerprint matching.
+- [x] Slice 2: Add API/domain contracts for normalized extraction.
+- [x] Slice 3: Add profile repositories and service skeletons.
+- [x] Slice 4: Add backend PDF text/layout extraction service.
+- [x] Slice 5: Add deterministic profile fingerprint matching.
 - [ ] Slice 6: Add OpenAI structured extraction service for admin training.
 - [ ] Slice 7: Add admin profile CRUD APIs.
 - [ ] Slice 8: Add admin train/test/publish APIs.
@@ -254,6 +298,21 @@ Validation:
 Dependencies:
 - Slice 1 preferred, but contract file can be reviewed independently.
 
+Implemented:
+- Added `api/src/types/illustration.ts` with `IllustrationExtract`,
+  `IllustrationRuntimeExtractResponse`, admin training proposal/profile mapping
+  contracts, PDF extraction result contracts, confidence/evidence types, and
+  `validateIllustrationExtract`.
+- Explicit runtime statuses now distinguish `unsupported_profile`,
+  `no_published_profile`, `needs_review`, and `extraction_failed`.
+- Added `extractionRunStatusForRuntimeStatus` to map runtime statuses back to
+  the `illustration_extraction_runs.status` storage statuses.
+
+Validation:
+- `cd api && bun build src/types/illustration.ts --target bun --outdir
+  /private/tmp/manle-api-contract-build`: passed.
+- `cd api && bun run build`: passed.
+
 ## Slice 3: Profile repositories and service skeletons
 Labels: area:api, area:db, risk:contract, type:feature
 
@@ -284,6 +343,20 @@ Validation:
 
 Dependencies:
 - Slice 1.
+
+Implemented:
+- Added `api/src/services/illustrations.ts` with parameterized Postgres helpers
+  for profile list/detail/create/update, draft version creation, version
+  publish state changes, published version loading, mapping loaders, training
+  example storage, and extraction run storage/update/list.
+- Admin-facing mutations are wired to `audit`; no routes are exposed yet.
+- Succeeded extraction run storage validates `IllustrationExtract` before
+  persisting normalized output.
+
+Validation:
+- `cd api && bun build src/services/illustrations.ts --target bun --outdir
+  /private/tmp/manle-api-illustrations-build`: passed.
+- `cd api && bun run build`: passed.
 
 ## Slice 4: Backend PDF text/layout extraction service
 Labels: area:api, area:pdf, risk:parser, type:feature
@@ -316,6 +389,24 @@ Validation:
 Dependencies:
 - Slice 2.
 
+Implemented:
+- Added `api/src/services/pdfExtraction.ts` with `extractPdfTextLayout` for
+  File/Blob/ArrayBuffer/Uint8Array inputs.
+- Extraction returns document SHA-256, file size, total page count, combined
+  text, per-page text, grouped line objects, positioned text items, and metadata
+  for extracted page count/max page limit.
+- Added `pdfjs-dist@3.11.174` to the API package, matching the FE dependency.
+- Uses runtime dynamic import of `pdfjs-dist/build/pdf.js` so API builds do not
+  bundle optional PDF.js rendering dependencies.
+
+Validation:
+- `cd api && bun install`: passed.
+- `cd api && bun build src/services/pdfExtraction.ts --target bun --outdir
+  /private/tmp/manle-api-pdf-extraction-build`: passed.
+- `cd api && bun --eval ...extractPdfTextLayout(...)`: passed on Cindy
+  Transamerica FFIUL and Lauren FlexLife sample PDFs with `maxPages: 3`.
+- `cd api && bun run build`: passed.
+
 ## Slice 5: Deterministic profile fingerprint matching
 Labels: area:api, area:pdf, risk:parser, risk:contract, type:feature
 
@@ -345,6 +436,26 @@ Validation:
 
 Dependencies:
 - Slices 1, 3, 4.
+
+Implemented:
+- Added `api/src/services/illustrationMatching.ts` with
+  `matchPublishedIllustrationProfile`.
+- Matcher loads published profile details, evaluates approved fingerprints using
+  `contains`, `equals`, `regex`, or `normalized_contains`, returns evidence
+  snippets, computes weighted score, and applies the published
+  `minMatchScore`.
+- Runtime matching is blocked unless all required fingerprints match and at
+  least one non-carrier fingerprint matches, preventing carrier-only false
+  positives.
+- Blocked statuses distinguish `no_published_profile`, `unsupported_profile`,
+  and `low_match_confidence`.
+
+Validation:
+- `cd api && bun build src/services/illustrationMatching.ts --target bun
+  --outdir /private/tmp/manle-api-matching-build`: passed.
+- `cd api && bun run build`: passed.
+- Integration matching against persisted profiles was not run because the local
+  database migration was not applied.
 
 ## Slice 6: OpenAI structured extraction service for admin training
 Labels: area:api, area:pdf, risk:parser, type:feature
