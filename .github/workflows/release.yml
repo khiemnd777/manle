@@ -178,7 +178,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          for name in PROD_HOST PROD_USER PROD_DEPLOY_PATH PROD_ENV_FILE; do
+          for name in PROD_HOST PROD_USER PROD_DEPLOY_PATH PROD_ENV_FILE PROD_CERTBOT_EMAIL; do
             if [ -z "${!name:-}" ]; then
               echo "::error::$name GitHub environment secret is required"
               exit 1
@@ -244,12 +244,8 @@ jobs:
 
           printf '%s\n' "$PROD_ENV_FILE" | run_ssh "cat > '$PROD_DEPLOY_PATH/.env.prod' && chmod 600 '$PROD_DEPLOY_PATH/.env.prod'"
 
-          if [ -n "${PROD_CERTBOT_EMAIL:-}" ]; then
-            certbot_cmd="$(printf 'cd %q && PROD_CERTBOT_EMAIL=%q PROD_SUDO_PASSWORD_STDIN=1 sh ./ensure-certbot-nginx.sh' "$PROD_DEPLOY_PATH" "$PROD_CERTBOT_EMAIL")"
-            printf '%s\n' "${PROD_SUDO_PASSWORD:-}" | run_ssh "$certbot_cmd"
-          else
-            echo "::warning::PROD_CERTBOT_EMAIL is not set; skipping Nginx/Certbot setup"
-          fi
+          certbot_cmd="$(printf 'cd %q && PROD_CERTBOT_EMAIL=%q PROD_SUDO_PASSWORD_STDIN=1 sh ./ensure-certbot-nginx.sh' "$PROD_DEPLOY_PATH" "$PROD_CERTBOT_EMAIL")"
+          printf '%s\n' "${PROD_SUDO_PASSWORD:-}" | run_ssh "$certbot_cmd"
 
           ghcr_username="${PROD_GHCR_USERNAME:-${REMOTE_GHCR_USERNAME:-}}"
           ghcr_token="${PROD_GHCR_TOKEN:-${REMOTE_GHCR_TOKEN:-}}"

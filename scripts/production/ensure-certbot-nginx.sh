@@ -8,6 +8,22 @@ API_DOMAIN="${API_DOMAIN:-api.manle.info}"
 FE_UPSTREAM="${FE_UPSTREAM:-http://127.0.0.1:5173}"
 ADMIN_UPSTREAM="${ADMIN_UPSTREAM:-http://127.0.0.1:5174}"
 API_UPSTREAM="${API_UPSTREAM:-http://127.0.0.1:8787}"
+ENV_FILE="${ENV_FILE:-.env.prod}"
+
+env_value() {
+  key="$1"
+  if [ ! -f "$ENV_FILE" ]; then
+    return
+  fi
+
+  value="$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 | cut -d= -f2- || true)"
+  value="${value%\"}"
+  value="${value#\"}"
+  printf '%s' "$value"
+}
+
+NGINX_CLIENT_MAX_BODY_SIZE="${NGINX_CLIENT_MAX_BODY_SIZE:-$(env_value NGINX_CLIENT_MAX_BODY_SIZE)}"
+NGINX_CLIENT_MAX_BODY_SIZE="${NGINX_CLIENT_MAX_BODY_SIZE:-20m}"
 
 : "${PROD_CERTBOT_EMAIL:?PROD_CERTBOT_EMAIL is required}"
 
@@ -87,6 +103,7 @@ server {
   listen 80;
   listen [::]:80;
   server_name ${API_DOMAIN};
+  client_max_body_size ${NGINX_CLIENT_MAX_BODY_SIZE};
 
   location / {
     proxy_pass ${API_UPSTREAM};
@@ -183,6 +200,7 @@ server {
   listen 443 ssl;
   listen [::]:443 ssl;
   server_name ${API_DOMAIN};
+  client_max_body_size ${NGINX_CLIENT_MAX_BODY_SIZE};
   ssl_certificate /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
   ssl_certificate_key /etc/letsencrypt/live/${API_DOMAIN}/privkey.pem;
   ssl_protocols TLSv1.2 TLSv1.3;
