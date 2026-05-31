@@ -198,7 +198,7 @@ function evaluateNormalizedContains(
   return { fingerprint, matched: false };
 }
 
-function evaluateFingerprint(fingerprint: IllustrationProfileFingerprint, pdf: PdfExtractionResult): FingerprintEvaluation {
+function evaluateFingerprintWithHint(fingerprint: IllustrationProfileFingerprint, pdf: PdfExtractionResult): FingerprintEvaluation {
   const text = pageText(pdf, fingerprint.pageHint);
   if (!text) return { fingerprint, matched: false };
 
@@ -207,6 +207,12 @@ function evaluateFingerprint(fingerprint: IllustrationProfileFingerprint, pdf: P
   if (strategy === 'regex') return evaluateRegex(fingerprint, pdf, text);
   if (strategy === 'normalized_contains') return evaluateNormalizedContains(fingerprint, pdf);
   return evaluateContains(fingerprint, pdf, text);
+}
+
+export function evaluateFingerprint(fingerprint: IllustrationProfileFingerprint, pdf: PdfExtractionResult): FingerprintEvaluation {
+  const hinted = evaluateFingerprintWithHint(fingerprint, pdf);
+  if (hinted.matched || !fingerprint.pageHint) return hinted;
+  return evaluateFingerprintWithHint({ ...fingerprint, pageHint: null }, pdf);
 }
 
 function candidateForProfile(
