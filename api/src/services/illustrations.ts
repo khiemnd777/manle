@@ -107,6 +107,58 @@ function publishRequiredFieldPaths(productType: IllustrationProductType) {
   return requiredIllustrationFieldPaths(productType).filter(path => !isProfileIdentityFieldPath(path));
 }
 
+function numberOrFallback(value: unknown, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function mergeDuplicatePageHint(current?: number | null, next?: number | null) {
+  if (current == null || next == null) return null;
+  return current === next ? current : null;
+}
+
+function fingerprintStorageKey(fingerprint: IllustrationProfileFingerprint) {
+  return [
+    fingerprint.fingerprintType,
+    fingerprint.matchStrategy,
+    cleanText(fingerprint.value),
+  ].join('\u0000');
+}
+
+export function dedupeIllustrationProfileFingerprintsForStorage(
+  fingerprints: IllustrationProfileFingerprint[],
+): IllustrationProfileFingerprint[] {
+  const byStorageKey = new Map<string, IllustrationProfileFingerprint>();
+  for (const fingerprint of fingerprints) {
+    const normalized: IllustrationProfileFingerprint = {
+      ...fingerprint,
+      value: cleanText(fingerprint.value),
+      evidenceSnippet: cleanText(fingerprint.evidenceSnippet),
+    };
+    const key = fingerprintStorageKey(normalized);
+    const existing = byStorageKey.get(key);
+    if (!existing) {
+      byStorageKey.set(key, normalized);
+      continue;
+    }
+
+    const existingConfidence = numberOrFallback(existing.confidence, 1);
+    const nextConfidence = numberOrFallback(normalized.confidence, 1);
+    const preferredEvidence = nextConfidence >= existingConfidence && normalized.evidenceSnippet
+      ? normalized.evidenceSnippet
+      : existing.evidenceSnippet || normalized.evidenceSnippet || '';
+
+    byStorageKey.set(key, {
+      ...existing,
+      pageHint: mergeDuplicatePageHint(existing.pageHint, normalized.pageHint),
+      required: existing.required || normalized.required,
+      weight: Math.max(numberOrFallback(existing.weight, 1), numberOrFallback(normalized.weight, 1)),
+      confidence: Math.max(existingConfidence, nextConfidence),
+      evidenceSnippet: preferredEvidence,
+    });
+  }
+  return [...byStorageKey.values()];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -1620,10 +1672,13 @@ export async function replaceIllustrationProfileVersionMappings(
   const fieldMappings = input.fieldMappings
     ? completeReviewedFieldMappings(profile.productType, input)
     : undefined;
+  const fingerprints = input.fingerprints
+    ? dedupeIllustrationProfileFingerprintsForStorage(input.fingerprints)
+    : undefined;
 
-  if (input.fingerprints) {
+  if (fingerprints) {
     await sql`delete from illustration_profile_fingerprints where profile_id = ${profileId} and profile_version_id = ${profileVersionId}`;
-    for (const fingerprint of input.fingerprints) {
+    for (const fingerprint of fingerprints) {
       await sql`
         insert into illustration_profile_fingerprints (
           profile_id,
@@ -1727,7 +1782,7 @@ export async function replaceIllustrationProfileVersionMappings(
   `;
   await audit(actor, 'illustration_profile_mappings.replace', 'illustration_profile', profileId, {
     profileVersionId,
-    fingerprints: input.fingerprints?.length,
+    fingerprints: fingerprints?.length,
     fieldMappings: fieldMappings?.length,
     projectionMappings: input.projectionMappings?.length,
   });
