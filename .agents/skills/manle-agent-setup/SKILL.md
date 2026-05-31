@@ -25,11 +25,24 @@ Do not read or edit generated output, dependency folders, or build caches.
 - Put stable reference material in `docs/agents/**` or `docs/adr/**` instead of
   repeating it in every skill.
 - Put only `name` and `description` in skill frontmatter.
+- Keep `agents/openai.yaml` beside every repo-local skill so interface metadata
+  stays discoverable. Use `MANLE` branding in `display_name` and reference the
+  exact `$manle-*` skill in `default_prompt`.
 - Make descriptions triggerable: include the task, affected area, and concrete
   examples of when to use the skill.
 - Keep names lowercase, hyphenated, and under 64 characters.
 - Prefer adding a narrow skill over making one generic skill handle unrelated
   work.
+
+## Subagent Rules
+
+- Keep project subagents in `.codex/agents/*.toml`.
+- Make the TOML `name` match the file stem.
+- Choose `read-only` for mapping, planning, and review agents; choose
+  `workspace-write` only for implementation or artifact-maintenance agents.
+- Point every `[[skills.config]]` path at an existing repo-local `SKILL.md`.
+- Prefer narrow worker, mapper, reviewer, planning, or maintenance roles over a
+  generic all-purpose MANLE agent.
 
 ## MANLE Skill Layers
 
@@ -62,6 +75,8 @@ Run the skill validation script when agent artifacts change:
 Also inspect the final diff for:
 
 - missing or duplicate skill names
+- missing `agents/openai.yaml` metadata
+- subagent names that do not match their file names
 - stale `$manle-*` references
 - overly broad descriptions
 - duplicated large reference blocks

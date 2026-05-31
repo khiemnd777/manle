@@ -1,0 +1,4 @@
+interface:
+  display_name: "MANLE Diagnose Feedback Loop"
+  short_description: "Bug diagnosis workflow"
+  default_prompt: "Use $manle-diagnose-feedback-loop to debug a MANLE regression end to end."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "MANLE Work Slicing"
+  short_description: "Issue slicing and validation plans"
+  default_prompt: "Use $manle-work-slicing to split broad MANLE work into verifiable slices."

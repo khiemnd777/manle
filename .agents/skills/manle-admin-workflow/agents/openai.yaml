@@ -1,0 +1,4 @@
+interface:
+  display_name: "MANLE Admin Workflow"
+  short_description: "Admin frontend workflow"
+  default_prompt: "Use $manle-admin-workflow to modify the MANLE admin console safely."

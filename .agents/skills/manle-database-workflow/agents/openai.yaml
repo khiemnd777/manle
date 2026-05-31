@@ -1,0 +1,4 @@
+interface:
+  display_name: "MANLE Database Workflow"
+  short_description: "Postgres schema and migration workflow"
+  default_prompt: "Use $manle-database-workflow to update MANLE database persistence safely."

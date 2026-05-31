@@ -1,0 +1,4 @@
+interface:
+  display_name: "MANLE Architecture Review"
+  short_description: "Architecture and contract review"
+  default_prompt: "Use $manle-architecture-review to review MANLE architecture risks."

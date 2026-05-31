@@ -1,0 +1,4 @@
+interface:
+  display_name: "MANLE TDD Vertical Slice"
+  short_description: "Test-first vertical slices"
+  default_prompt: "Use $manle-tdd-vertical-slice to implement or protect MANLE behavior with focused tests."

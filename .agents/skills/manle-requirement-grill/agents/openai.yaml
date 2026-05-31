@@ -1,0 +1,4 @@
+interface:
+  display_name: "MANLE Requirement Grill"
+  short_description: "Requirement clarification workflow"
+  default_prompt: "Use $manle-requirement-grill to clarify risky MANLE requirements before implementation."

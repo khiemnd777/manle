@@ -1,0 +1,4 @@
+interface:
+  display_name: "MANLE Agent Setup"
+  short_description: "Agent and skill infrastructure"
+  default_prompt: "Use $manle-agent-setup to audit or update MANLE agents and skills."

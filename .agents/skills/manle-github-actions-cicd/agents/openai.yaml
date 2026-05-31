@@ -1,4 +1,4 @@
 interface:
-  display_name: "Manle GitHub Actions CI/CD"
+  display_name: "MANLE GitHub Actions CI/CD"
   short_description: "GitHub Actions CI/CD and deploys"
   default_prompt: "Use $manle-github-actions-cicd to build or fix MANLE CI/CD and production deploys."

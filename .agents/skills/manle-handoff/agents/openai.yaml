@@ -1,0 +1,4 @@
+interface:
+  display_name: "MANLE Handoff"
+  short_description: "Continuation and transfer notes"
+  default_prompt: "Use $manle-handoff to summarize MANLE work for another agent."

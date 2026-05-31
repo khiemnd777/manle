@@ -1,0 +1,4 @@
+interface:
+  display_name: "MANLE API Workflow"
+  short_description: "Backend API workflow"
+  default_prompt: "Use $manle-api-workflow to modify the MANLE backend API safely."
