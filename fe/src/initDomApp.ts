@@ -108,6 +108,42 @@ function bindSectionExperience() {
   }
 }
 
+function bindPricingScrollCue() {
+  const grid = document.querySelector<HTMLElement>('#pricingGrid');
+  const shell = grid?.closest<HTMLElement>('.pricing-scroll-shell');
+  if (!grid || !shell) return;
+
+  let updateFrame = 0;
+
+  const updateScrollState = () => {
+    updateFrame = 0;
+
+    const maxScrollLeft = grid.scrollWidth - grid.clientWidth;
+    const hasHorizontalScroll = maxScrollLeft > 2;
+    const atStart = grid.scrollLeft <= 2;
+    const atEnd = grid.scrollLeft >= maxScrollLeft - 2;
+
+    shell.classList.toggle('has-horizontal-scroll', hasHorizontalScroll);
+    shell.classList.toggle('has-scroll-before', hasHorizontalScroll && !atStart);
+    shell.classList.toggle('has-scroll-after', hasHorizontalScroll && !atEnd);
+  };
+
+  const scheduleScrollStateUpdate = () => {
+    if (updateFrame) return;
+    updateFrame = window.requestAnimationFrame(updateScrollState);
+  };
+
+  grid.addEventListener('scroll', scheduleScrollStateUpdate, { passive: true });
+  window.addEventListener('resize', scheduleScrollStateUpdate);
+
+  new MutationObserver(scheduleScrollStateUpdate).observe(grid, { childList: true });
+  if ('ResizeObserver' in window) {
+    new ResizeObserver(scheduleScrollStateUpdate).observe(grid);
+  }
+
+  scheduleScrollStateUpdate();
+}
+
 export function initDomApp() {
   if (initialized) return;
   initialized = true;
@@ -132,6 +168,7 @@ export function initDomApp() {
   bindLandingNavigation();
   bindLandingParallax();
   bindSectionExperience();
+  bindPricingScrollCue();
   bindAccountAndBilling();
   bindStyleEditor();
   hydrateMuiIcons();

@@ -97,10 +97,13 @@
       <p class="landing-section-eyebrow">Pricing</p>
       <h2>Chọn tier theo số lượng export mỗi ngày.</h2>
     </div>
-    <div class="pricing-grid" id="pricingGrid" aria-live="polite">
-      <div class="price-card price-card-loading">Loading tiers...</div>
+    <div class="pricing-scroll-shell">
+      <div class="pricing-grid" id="pricingGrid" aria-live="polite" tabindex="0">
+        <div class="price-card price-card-loading">Loading tiers...</div>
+      </div>
+      <div class="pricing-scroll-indicator" aria-hidden="true"></div>
     </div>
-    <div class="promo-row">
+    <div class="promo-row" hidden>
       <label for="promoCodeInput">Promotion code</label>
       <input type="text" id="promoCodeInput" placeholder="Optional">
     </div>
