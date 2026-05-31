@@ -34,6 +34,12 @@ export function textContainsFingerprintValue(text: string, value: string) {
   return normalizeText(text).includes(needle);
 }
 
+export function textNormalizedContainsFingerprintValue(text: string, value: string) {
+  const needle = normalizeCompact(value);
+  if (!needle) return false;
+  return normalizeCompact(text).includes(needle);
+}
+
 function pageText(pdf: PdfExtractionResult, pageHint?: number | null) {
   if (!pageHint) return pdf.text;
   return pdf.pages.find(page => page.page === pageHint)?.text || '';
@@ -157,7 +163,23 @@ function evaluateNormalizedContains(
 ): FingerprintEvaluation {
   const needle = normalizeCompact(fingerprint.value);
   if (!needle) return { fingerprint, matched: false };
-  for (const page of pdf.pages) {
+
+  const pages = fingerprint.pageHint
+    ? pdf.pages.filter(page => page.page === fingerprint.pageHint)
+    : pdf.pages;
+  for (const page of pages) {
+    if (textNormalizedContainsFingerprintValue(page.text, fingerprint.value)) {
+      return {
+        fingerprint,
+        matched: true,
+        evidence: {
+          page: page.page,
+          text: snippet(page.text, evidenceIndexForContains(page.text, fingerprint.value), fingerprint.value.length) || fingerprint.value,
+          confidence: fingerprint.confidence,
+          source: 'pdf_text',
+        },
+      };
+    }
     for (const line of page.lines) {
       if (normalizeCompact(line.text).includes(needle)) {
         return {

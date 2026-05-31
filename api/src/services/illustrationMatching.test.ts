@@ -1,5 +1,8 @@
 import { expect, test } from 'bun:test';
-import { textContainsFingerprintValue } from './illustrationMatching';
+import {
+  textContainsFingerprintValue,
+  textNormalizedContainsFingerprintValue,
+} from './illustrationMatching';
 
 test('contains fingerprints match PDF text across line breaks', () => {
   const pdfText = [
@@ -23,4 +26,16 @@ test('contains fingerprints still reject absent values', () => {
     'TRANSAMERICA TRENDSETTER LB 20',
     'Life Insurance Company of the Southwest',
   )).toBe(false);
+});
+
+test('normalized contains fingerprints match compacted PDF text across line breaks', () => {
+  const pdfText = [
+    'TRANSAMERICA TRENDSETTER LB 20',
+    'Guaranteed Level Term Life Insurance with Living Benefits',
+  ].join('\n');
+
+  expect(textNormalizedContainsFingerprintValue(
+    pdfText,
+    'Transamerica Trendsetter LB 20 - Guaranteed Level Term Life Insurance',
+  )).toBe(true);
 });
