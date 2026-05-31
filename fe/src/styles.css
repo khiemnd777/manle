@@ -734,6 +734,8 @@
   }
   .pricing-scroll-shell {
     position: relative;
+    --pricing-card-width: clamp(236px, 24vw, 270px);
+    --pricing-scroll-side: 2px;
   }
   .pricing-scroll-shell::before,
   .pricing-scroll-shell::after {
@@ -765,9 +767,9 @@
     gap: 14px;
     overflow-x: auto;
     overscroll-behavior-x: contain;
-    scroll-padding: 2px 66px 14px 2px;
+    scroll-padding: 2px var(--pricing-scroll-side) 14px;
     scroll-snap-type: x proximity;
-    padding: 2px 56px 16px 2px;
+    padding: 2px max(56px, var(--pricing-scroll-side)) 16px var(--pricing-scroll-side);
     scrollbar-color: rgba(29, 21, 72, .28) transparent;
     scrollbar-width: thin;
   }
@@ -777,7 +779,7 @@
   }
   .price-card {
     position: relative;
-    flex: 0 0 clamp(236px, 24vw, 270px);
+    flex: 0 0 var(--pricing-card-width);
     min-height: 284px;
     padding: 22px;
     display: flex;
@@ -812,6 +814,9 @@
   }
   .pricing-scroll-shell.has-scroll-after .pricing-scroll-indicator {
     opacity: 1;
+  }
+  .pricing-scroll-shell:not(.has-horizontal-scroll) .pricing-grid {
+    justify-content: center;
   }
   .price-card-loading {
     min-height: 120px;
@@ -1774,6 +1779,16 @@
     }
     .pricing-heading {
       display: block;
+    }
+    .pricing-scroll-shell {
+      --pricing-card-width: min(72vw, 270px);
+      --pricing-scroll-side: max(14px, calc((100% - var(--pricing-card-width)) / 2));
+    }
+    .pricing-grid {
+      scroll-snap-type: x mandatory;
+    }
+    .price-card {
+      scroll-snap-align: center;
     }
   }
 
