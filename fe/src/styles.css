@@ -2382,15 +2382,26 @@
     box-shadow: 0 0 0 2px rgba(91, 63, 204, .35);
   }
   /* Editable areas inside the dark Benefit 3 / Cash Value boxes use lighter cue */
-  .benefit3-desc[contenteditable="true"]:hover,
-  .benefit1-box[contenteditable="true"]:hover {
+  .benefit3-desc[contenteditable="true"]:hover {
     background: rgba(255, 255, 255, .06);
     box-shadow: 0 0 0 2px rgba(255, 255, 255, .25);
   }
-  .benefit3-desc[contenteditable="true"]:focus,
-  .benefit1-box[contenteditable="true"]:focus {
+  .benefit3-desc[contenteditable="true"]:focus {
     background: rgba(255, 255, 255, .10);
     box-shadow: 0 0 0 2px rgba(255, 215, 100, .6);
+  }
+  .benefit1-box[contenteditable="true"]:hover {
+    background: var(--teal);
+    box-shadow: 0 0 0 3px rgba(255, 215, 100, .45);
+  }
+  .benefit1-box[contenteditable="true"]:focus {
+    background: var(--teal);
+    outline: 2px solid rgba(255, 255, 255, .95);
+    outline-offset: 3px;
+    box-shadow:
+      inset 0 0 0 2px rgba(255, 215, 100, .95),
+      0 0 0 6px rgba(255, 215, 100, .72),
+      0 10px 26px rgba(245, 184, 64, .35);
   }
   /* Hide all editing cues during export so they don't appear in PNG/JPG/PDF */
   .card.exporting [contenteditable="true"] {

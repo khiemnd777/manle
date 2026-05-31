@@ -17,6 +17,7 @@ function resolveApiBase() {
 }
 
 const API_BASE = resolveApiBase();
+type ProductTab = 'iul' | 'term';
 
 // Full state name → 2-letter code
 const STATE_MAP = {
@@ -146,10 +147,10 @@ function runtimeBlockedMessage(payload: any) {
   return message || 'Không thể extract illustration từ PDF này.';
 }
 
-async function extractRuntimeIllustration(file, productType) {
+async function extractRuntimeIllustration(file, productType?: ProductTab | null) {
   const form = new FormData();
   form.set('file', file);
-  form.set('productType', productType);
+  if (productType) form.set('productType', productType);
   const response = await fetch(`${API_BASE}/api/illustrations/extract`, {
     method: 'POST',
     credentials: 'include',
@@ -180,6 +181,26 @@ function finiteNumber(value: unknown) {
   }
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function normalizeProductType(value: unknown): ProductTab | null {
+  return value === 'iul' || value === 'term' ? value : null;
+}
+
+function productTabLabel(tab: ProductTab) {
+  return tab === 'term' ? 'Term Life' : 'IUL';
+}
+
+function detectProductTypeFromText(text: string): ProductTab | null {
+  const t = text.replace(/\s+/g, ' ');
+  if (/Trendsetter|Level Term Period|Guaranteed Level Term|Term Life/i.test(t)) return 'term';
+  if (/FFIUL|Indexed Universal Life|TABULAR DETAIL|Index Account/i.test(t)) return 'iul';
+  return null;
+}
+
+function detectProductTypeFromFilename(filename: string): ProductTab | null {
+  const base = filename.replace(/[_-]+/g, ' ');
+  return detectProductTypeFromText(base);
 }
 
 function runtimeExtractToAutofill(extract: any) {
@@ -422,11 +443,8 @@ export function parsePdfText(text) {
 
   // ---- Product type detection (IUL vs Term Life) ----
   // Term Life Trendsetter® LB has very different markers from IUL
-  if (/Trendsetter|Level Term Period|Guaranteed Level Term/i.test(t)) {
-    out.productType = 'term';
-  } else if (/FFIUL|Indexed Universal Life|TABULAR DETAIL|Index Account/i.test(t)) {
-    out.productType = 'iul';
-  }
+  const productType = detectProductTypeFromText(t);
+  if (productType) out.productType = productType;
 
   // Term Length: "Level Term Period 30 Years" / "Trendsetter® LB 30" / "30 Year Premium"
   m = t.match(/Level Term Period\s+(\d{2})\s*Years?/i);
@@ -449,6 +467,18 @@ export function parsePdfText(text) {
   return out;
 }
 
+async function detectUploadProductType(file): Promise<ProductTab | null> {
+  const fromFilename = detectProductTypeFromFilename(file?.name || '');
+  try {
+    const { text } = await extractPdfData(file, 8);
+    const fromContent = normalizeProductType(parsePdfText(text).productType) || detectProductTypeFromText(text);
+    return fromContent || fromFilename;
+  } catch (err) {
+    console.warn('PDF product pre-detect failed:', err);
+    return fromFilename;
+  }
+}
+
 // Merge filename + content data, prefer non-empty
 export function mergeExtracted(fromFile: any, fromContent: any) {
   const out = { ...fromFile };
@@ -460,11 +490,53 @@ export function mergeExtracted(fromFile: any, fromContent: any) {
   return out;
 }
 
+function uploadUi(tab: ProductTab) {
+  const isTermZone = tab === 'term';
+  return {
+    zone:       isTermZone ? $('uploadZoneTerm') : $('uploadZone'),
+    successBox: isTermZone ? $('uploadSuccessTerm') : $('uploadSuccess'),
+    errorBox:   isTermZone ? $('uploadErrorTerm')   : $('uploadError'),
+    parsedDiv:  isTermZone ? $('uploadParsedTerm')  : $('uploadParsed'),
+    defaultDiv: isTermZone ? $('uploadDefaultTerm') : $('uploadDefault'),
+    fileNameEl: isTermZone ? $('uploadFileNameTerm'): $('uploadFileName'),
+    input:      isTermZone ? $('pdfInputTerm')      : $('pdfInput'),
+  };
+}
+
+function clearUploadMessages(ui) {
+  ui.successBox.classList.remove('show');
+  ui.errorBox.classList.remove('show');
+}
+
+function showUploadParsing(ui, message: string) {
+  clearUploadMessages(ui);
+  ui.zone.classList.add('parsing');
+  ui.zone.classList.remove('parsed');
+  ui.defaultDiv.style.display = 'none';
+  ui.parsedDiv.style.display = 'block';
+  ui.fileNameEl.innerHTML = `<span class="upload-spinner"></span>${message}`;
+}
+
+function resetUploadUi(ui) {
+  ui.zone.classList.remove('parsing', 'parsed');
+  ui.defaultDiv.style.display = 'block';
+  ui.parsedDiv.style.display = 'none';
+  clearUploadMessages(ui);
+  if (ui.input) ui.input.value = '';
+}
+
+function showUploadParsed(ui, file) {
+  ui.zone.classList.remove('parsing');
+  ui.zone.classList.add('parsed');
+  ui.fileNameEl.textContent = file.name;
+}
+
 // Apply extracted data to form fields
 // targetTab: 'iul' | 'term' — controls which premium/face fields to write
-export function applyExtracted(data: any, targetTab) {
+export function applyExtracted(data: any, targetTab, sourceTab = targetTab) {
   const filled = [];
-  const isTermUpload = data.productType === 'term' || (!data.productType && targetTab === 'term');
+  const productType = normalizeProductType(data.productType);
+  const isTermUpload = productType === 'term' || (!productType && targetTab === 'term');
 
   if (data.fullName) {
     const parts = data.fullName.trim().split(/\s+/);
@@ -548,13 +620,11 @@ export function applyExtracted(data: any, targetTab) {
     }
   }
 
-  // If the PDF is a Term Life illustration, auto-switch to the Term Life
-  // tab so the user lands on the right card after upload.
-  if (data.productType === 'term') {
-    setTab('term');
-    filled.push('→ Term Life tab');
-  } else if (data.productType === 'iul') {
-    setTab('iul');
+  // If the PDF identifies its product type, land on that card regardless
+  // of which upload zone the user dropped the file into.
+  if (productType) {
+    setTab(productType);
+    if (sourceTab !== productType) filled.push(`→ ${productTabLabel(productType)} tab`);
   }
 
   if (data.agentName || data.agentPhone) {
@@ -571,64 +641,69 @@ export function applyExtracted(data: any, targetTab) {
 // Main upload handler
 // forTab: 'iul' | 'term' — which tab's zone triggered this upload
 export async function handlePdfUpload(file, forTab) {
-  const isTermZone = forTab === 'term';
-  const zone       = isTermZone ? $('uploadZoneTerm') : $('uploadZone');
-  const successBox = isTermZone ? $('uploadSuccessTerm') : $('uploadSuccess');
-  const errorBox   = isTermZone ? $('uploadErrorTerm')   : $('uploadError');
-  const parsedDiv  = isTermZone ? $('uploadParsedTerm')  : $('uploadParsed');
-  const defaultDiv = isTermZone ? $('uploadDefaultTerm') : $('uploadDefault');
-  const fileNameEl = isTermZone ? $('uploadFileNameTerm'): $('uploadFileName');
-
-  successBox.classList.remove('show');
-  errorBox.classList.remove('show');
-
-  // Show parsing state
-  zone.classList.add('parsing');
-  defaultDiv.style.display = 'none';
-  parsedDiv.style.display = 'block';
-  fileNameEl.innerHTML = `<span class="upload-spinner"></span>Đang đọc file...`;
+  const sourceTab = normalizeProductType(forTab) || 'iul';
+  let activeTab = sourceTab;
+  let ui = uploadUi(activeTab);
+  showUploadParsing(ui, 'Đang nhận diện loại tài liệu...');
 
   try {
-    const runtimeResult = await extractRuntimeIllustration(file, forTab);
+    const detectedType = await detectUploadProductType(file);
+    if (detectedType && detectedType !== activeTab) {
+      resetUploadUi(ui);
+      activeTab = detectedType;
+      setTab(activeTab);
+      ui = uploadUi(activeTab);
+    }
+    showUploadParsing(ui, 'Đang đọc file...');
+
+    const runtimeResult = await extractRuntimeIllustration(file, detectedType);
     const carrierLogoUrl = runtimeCarrierLogoUrl(runtimeResult);
     const { data: merged, rows: extractedRows } = runtimeExtractToAutofill(runtimeResult.extract);
+    const productType = normalizeProductType(merged.productType) || detectedType || activeTab;
+    merged.productType = productType;
 
     if (Object.keys(merged).length === 0 && extractedRows.length === 0) {
       throw new Error('Không nhận diện được dữ liệu từ file. Hãy điền thủ công.');
     }
 
-    const filled = applyExtracted(merged, forTab);
-    const projectionRowCount = applyRuntimeProjectionRows(extractedRows, merged.productType || forTab);
+    if (productType !== activeTab) {
+      resetUploadUi(ui);
+      activeTab = productType;
+      setTab(activeTab);
+      ui = uploadUi(activeTab);
+      showUploadParsing(ui, 'Đang đọc file...');
+    }
+
+    const filled = applyExtracted(merged, productType, sourceTab);
+    const projectionRowCount = applyRuntimeProjectionRows(extractedRows, productType);
     if (projectionRowCount > 0) filled.push(`${projectionRowCount} projection rows`);
 
     // Update UI
-    zone.classList.remove('parsing');
-    zone.classList.add('parsed');
-    fileNameEl.textContent = file.name;
+    showUploadParsed(ui, file);
 
     // Refresh sidebar age list and re-render card
     renderAgeList();
     render();
     if (carrierLogoUrl) {
-      setHeaderLogo(merged.productType === 'term' ? 'term' : 'iul', carrierLogoUrl, { save: false, allowLocked: true });
+      setHeaderLogo(productType, carrierLogoUrl, { save: false, allowLocked: true });
       filled.push('Carrier logo');
     }
 
     // Show success
     if (filled.length > 0) {
-      successBox.innerHTML = `<strong>Auto-filled:</strong> <span class="field-list">${filled.join(', ')}</span>`;
-      successBox.classList.add('show');
+      ui.successBox.innerHTML = `<strong>Auto-filled:</strong> <span class="field-list">${filled.join(', ')}</span>`;
+      ui.successBox.classList.add('show');
     } else {
-      errorBox.textContent = 'Đọc được file nhưng không tìm thấy dữ liệu phù hợp. Hãy điền thủ công.';
-      errorBox.classList.add('show');
+      ui.errorBox.textContent = 'Đọc được file nhưng không tìm thấy dữ liệu phù hợp. Hãy điền thủ công.';
+      ui.errorBox.classList.add('show');
     }
   } catch (err) {
     console.error(err);
-    zone.classList.remove('parsing', 'parsed');
-    defaultDiv.style.display = 'block';
-    parsedDiv.style.display = 'none';
-    errorBox.textContent = err.message || 'Lỗi khi đọc file PDF.';
-    errorBox.classList.add('show');
+    ui.zone.classList.remove('parsing', 'parsed');
+    ui.defaultDiv.style.display = 'block';
+    ui.parsedDiv.style.display = 'none';
+    ui.errorBox.textContent = err.message || 'Lỗi khi đọc file PDF.';
+    ui.errorBox.classList.add('show');
   }
 }
 
