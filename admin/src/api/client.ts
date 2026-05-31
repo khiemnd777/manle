@@ -165,7 +165,7 @@ export type EmailTemplate = {
 export type IllustrationProductType = 'iul' | 'term';
 export type IllustrationProfileStatus = 'draft' | 'active' | 'archived';
 export type IllustrationProfileVersionStatus = 'draft' | 'published' | 'archived';
-export type IllustrationTrainingExampleStatus = 'uploaded' | 'training' | 'reviewed' | 'rejected' | 'archived';
+export type IllustrationTrainingExampleStatus = 'uploaded' | 'training' | 'needs_review' | 'reviewed' | 'rejected' | 'archived';
 export type IllustrationExtractionRunStatus = 'pending' | 'unsupported_profile' | 'needs_review' | 'succeeded' | 'failed';
 export type IllustrationExtractionRunType = 'admin_train' | 'admin_test' | 'runtime_extract';
 export type IllustrationRuntimeErrorCode =
@@ -264,6 +264,10 @@ export type IllustrationProfileSummary = {
   productType: IllustrationProductType;
   status: IllustrationProfileStatus;
   notes: string;
+  carrierLogoUrl?: string | null;
+  carrierLogoMimeType?: string | null;
+  carrierLogoFileName?: string | null;
+  carrierLogoFileSizeBytes?: number | null;
   activeVersionId?: string | null;
   activeVersionNumber?: number | null;
   createdAt: string;
@@ -349,6 +353,7 @@ export type IllustrationProfileDetail = IllustrationProfileSummary & {
   fieldMappings: IllustrationProfileFieldMapping[];
   projectionMappings: IllustrationProfileProjectionMapping[];
   examples: IllustrationTrainingExampleSummary[];
+  runs: IllustrationExtractionRunSummary[];
 };
 
 export type IllustrationExtractionRunSummary = {
@@ -393,6 +398,38 @@ export type IllustrationTrainingUploadInput = {
   notes?: string;
   useFastModel?: boolean;
   maxPages?: number;
+};
+
+export type IllustrationProfilePdfUpsertInput = {
+  file: File;
+  notes?: string;
+  productType?: IllustrationProductType;
+  maxPages?: number;
+};
+
+export type IllustrationProfileIdentityExtract = {
+  carrier: string;
+  productName: string;
+  productType: IllustrationProductType;
+  confidence: number;
+  evidence: {
+    carrier?: IllustrationEvidenceSnippet;
+    productName?: IllustrationEvidenceSnippet;
+    productType?: IllustrationEvidenceSnippet;
+  };
+};
+
+export type IllustrationProfilePdfUpsertResponse = {
+  profile: IllustrationProfileDetail;
+  identity: IllustrationProfileIdentityExtract;
+  created: boolean;
+  file: {
+    fileName: string;
+    fileSha256: string;
+    fileSizeBytes: number;
+    pageCount: number;
+    extractedPageCount: number;
+  };
 };
 
 export type IllustrationTrainingCorrectionInput = {
@@ -494,6 +531,15 @@ function illustrationTrainingForm(body: IllustrationTrainingUploadInput) {
   return form;
 }
 
+function illustrationProfilePdfForm(body: IllustrationProfilePdfUpsertInput) {
+  const form = new FormData();
+  form.set('file', body.file);
+  if (body.notes) form.set('notes', body.notes);
+  if (body.productType) form.set('productType', body.productType);
+  if (body.maxPages != null) form.set('maxPages', String(body.maxPages));
+  return form;
+}
+
 export const api = {
   bootstrapStatus: () => apiFetch<{ hasAdmin: boolean }>('/api/admin/bootstrap/status'),
   bootstrap: (body: { name: string; email: string; password: string }) =>
@@ -579,6 +625,11 @@ export const api = {
     apiFetch<{ profiles: IllustrationProfileSummary[] }>(`/api/admin/illustration-profiles?search=${encodeURIComponent(search)}`),
   createIllustrationProfile: (body: { carrier: string; productName: string; productType: IllustrationProductType; notes?: string }) =>
     apiFetch<{ profile: IllustrationProfileDetail }>('/api/admin/illustration-profiles', { method: 'POST', body: JSON.stringify(body) }),
+  upsertIllustrationProfileFromPdf: (body: IllustrationProfilePdfUpsertInput) =>
+    apiFetch<IllustrationProfilePdfUpsertResponse>('/api/admin/illustration-profiles/upsert-from-pdf', {
+      method: 'POST',
+      body: illustrationProfilePdfForm(body),
+    }),
   illustrationProfile: (id: string) =>
     apiFetch<{ profile: IllustrationProfileDetail }>(`/api/admin/illustration-profiles/${id}`),
   trainIllustrationProfile: (id: string, body: IllustrationTrainingUploadInput) =>
@@ -601,4 +652,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  uploadIllustrationCarrierLogo: (id: string, file: File) => {
+    const form = new FormData();
+    form.set('file', file);
+    return apiFetch<{ profile: IllustrationProfileDetail }>(`/api/admin/illustration-profiles/${id}/carrier-logo`, {
+      method: 'POST',
+      body: form,
+    });
+  },
+  clearIllustrationCarrierLogo: (id: string) =>
+    apiFetch<{ profile: IllustrationProfileDetail }>(`/api/admin/illustration-profiles/${id}/carrier-logo`, { method: 'DELETE' }),
 };

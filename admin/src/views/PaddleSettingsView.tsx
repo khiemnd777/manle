@@ -8,6 +8,7 @@ import {
   boolField,
   field,
   messageFromError,
+  useConfirmDialog,
   useFeedbackState,
 } from '../adminShared';
 
@@ -34,6 +35,7 @@ function allConfigured(settings: PaddleSettings | null) {
 }
 
 export default function PaddleSettingsView({ data, reload }: { data: AdminData; reload: () => Promise<void> }) {
+  const confirmDialog = useConfirmDialog();
   const [message, setMessage] = useFeedbackState('success');
   const [error, setError] = useFeedbackState('error');
   const settings = data.paddleSettings;
@@ -54,7 +56,12 @@ export default function PaddleSettingsView({ data, reload }: { data: AdminData; 
       setError('Enter a new Paddle credential or select a stored credential to clear.');
       return;
     }
-    if ((clearApiKey || clearClientToken || clearWebhookSecret) && !window.confirm('Clear selected admin-stored Paddle credential(s)?')) return;
+    if ((clearApiKey || clearClientToken || clearWebhookSecret) && !(await confirmDialog({
+      title: 'Clear Paddle credentials?',
+      message: 'Selected admin-stored credentials will be removed. Environment values can still be used when configured.',
+      confirmLabel: 'Clear credentials',
+      variant: 'danger',
+    }))) return;
 
     try {
       const body: Parameters<typeof api.updatePaddleSettings>[0] = {};

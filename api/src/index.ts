@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { config } from './config';
 import { AppError, fail } from './http/errors';
 import { corsHeaders, json, readJson } from './http/response';
@@ -55,6 +56,7 @@ import {
 import { accountEntitlements, authorizeExport, authorizeFeature } from './services/entitlements';
 import {
   applyIllustrationTrainingCorrection,
+  clearIllustrationCarrierLogo,
   createIllustrationProfile,
   ensureDraftIllustrationProfileVersion,
   getIllustrationProfile,
@@ -63,6 +65,9 @@ import {
   recordIllustrationExtractionRun,
   storeIllustrationTrainingExample,
   updateIllustrationExtractionRun,
+  updateIllustrationCarrierLogo,
+  updateIllustrationTrainingExample,
+  upsertIllustrationProfileFromPdf,
 } from './services/illustrations';
 import { extractPdfTextLayout } from './services/pdfExtraction';
 import { generateIllustrationTrainingProposal } from './services/openaiIllustrationExtraction';
@@ -190,6 +195,16 @@ function formIllustrationProductType(form: FormData) {
   return value === 'iul' || value === 'term' ? value : undefined;
 }
 
+function carrierLogoMimeType(upload: Blob, fileName: string) {
+  const mimeType = upload.type.toLowerCase();
+  if (mimeType === 'image/png' || mimeType === 'image/jpeg' || mimeType === 'image/webp') return mimeType;
+  const lowerName = fileName.toLowerCase();
+  if (lowerName.endsWith('.png')) return 'image/png';
+  if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) return 'image/jpeg';
+  if (lowerName.endsWith('.webp')) return 'image/webp';
+  fail(400, 'invalid_logo_mime_type', 'Carrier logo must be PNG, JPEG, or WebP.');
+}
+
 async function readIllustrationPdfUpload(request: Request) {
   const form = await request.formData();
   const upload = form.get('file') || form.get('pdf');
@@ -204,7 +219,39 @@ async function readIllustrationPdfUpload(request: Request) {
     notes: formText(form, 'notes'),
     useFastModel: formBool(form, 'useFastModel'),
     maxPages: formNumber(form, 'maxPages'),
+    productType: formIllustrationProductType(form),
   };
+}
+
+async function readIllustrationCarrierLogoUpload(request: Request) {
+  const form = await request.formData();
+  const upload = form.get('file') || form.get('logo');
+  if (!(upload instanceof Blob)) {
+    fail(400, 'missing_logo', 'A carrier logo image is required.');
+  }
+  const fileName = String((upload as any).name || formText(form, 'fileName') || 'carrier-logo');
+  const mimeType = carrierLogoMimeType(upload, fileName);
+  const bytes = Buffer.from(await upload.arrayBuffer());
+  return {
+    fileName,
+    mimeType,
+    fileSizeBytes: bytes.byteLength,
+    dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
+  };
+}
+
+async function handleAdminIllustrationProfileUpsertFromPdf(actor: any, request: Request) {
+  const upload = await readIllustrationPdfUpload(request);
+  const pdf = await extractPdfTextLayout(upload.file, {
+    fileName: upload.fileName,
+    mimeType: upload.file.type || 'application/pdf',
+    maxPages: upload.maxPages,
+  });
+  return await upsertIllustrationProfileFromPdf(actor, {
+    pdf,
+    productType: upload.productType,
+    notes: upload.notes,
+  });
 }
 
 async function runAdminTrainingExtraction(actor: any, profileId: string, request: Request, runType: 'admin_train' | 'admin_test') {
@@ -220,7 +267,7 @@ async function runAdminTrainingExtraction(actor: any, profileId: string, request
     mimeType: upload.file.type || 'application/pdf',
     maxPages: upload.maxPages,
   });
-  const example = runType === 'admin_train'
+  let example = runType === 'admin_train'
     ? await storeIllustrationTrainingExample(actor, profileId, {
         profileVersionId: version.id,
         fileName: upload.fileName,
@@ -268,6 +315,12 @@ async function runAdminTrainingExtraction(actor: any, profileId: string, request
         extractedPageCount: pdf.pages.length,
       },
     });
+    if (example) {
+      example = await updateIllustrationTrainingExample(actor, profileId, example.id, {
+        profileVersionId: version.id,
+        status: 'rejected',
+      });
+    }
     await audit(actor, `illustration_profile.${runType}`, 'illustration_profile', profileId, {
       profileVersionId: version.id,
       runId: run.id,
@@ -293,8 +346,15 @@ async function runAdminTrainingExtraction(actor: any, profileId: string, request
       fieldMappingCount: result.proposal.fieldMappings.length,
       projectionMappingCount: result.proposal.projectionMappings.length,
       issueCount: result.proposal.issues.length,
+      reviewProposal: result.proposal,
     },
   });
+  if (example) {
+    example = await updateIllustrationTrainingExample(actor, profileId, example.id, {
+      profileVersionId: version.id,
+      status: 'needs_review',
+    });
+  }
   await audit(actor, `illustration_profile.${runType}`, 'illustration_profile', profileId, {
     profileVersionId: version.id,
     runId: run.id,
@@ -573,9 +633,35 @@ async function route(request: Request) {
     return json(request, { profile: await createIllustrationProfile(actor, await readJson(request)) }, 201);
   }
 
+  if (request.method === 'POST' && url.pathname === '/api/admin/illustration-profiles/upsert-from-pdf') {
+    return json(request, await handleAdminIllustrationProfileUpsertFromPdf(actor, request));
+  }
+
   const illustrationProfileId = idAt(parts, ['api', 'admin', 'illustration-profiles']);
   if (illustrationProfileId && request.method === 'GET') {
     return json(request, { profile: await getIllustrationProfile(illustrationProfileId) });
+  }
+
+  if (
+    parts.length === 5 &&
+    parts[0] === 'api' &&
+    parts[1] === 'admin' &&
+    parts[2] === 'illustration-profiles' &&
+    parts[4] === 'carrier-logo' &&
+    request.method === 'POST'
+  ) {
+    return json(request, { profile: await updateIllustrationCarrierLogo(actor, parts[3], await readIllustrationCarrierLogoUpload(request)) });
+  }
+
+  if (
+    parts.length === 5 &&
+    parts[0] === 'api' &&
+    parts[1] === 'admin' &&
+    parts[2] === 'illustration-profiles' &&
+    parts[4] === 'carrier-logo' &&
+    request.method === 'DELETE'
+  ) {
+    return json(request, { profile: await clearIllustrationCarrierLogo(actor, parts[3]) });
   }
 
   if (

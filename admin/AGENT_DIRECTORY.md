@@ -174,24 +174,41 @@ show stale admin state.
 
 `IllustrationProfilesView`:
 
-- Create fields: `carrier`, `productName`, `productType`, `notes`.
+- Upload-to-upsert fields: `file`, optional `productType`, `maxPages`, `notes`.
+- Manual create fields: `carrier`, `productName`, `productType`, `notes`.
 - Search form field: `search`.
 - Table columns: Carrier, Product, Type, Status, Active Version, Updated.
 - Detail dialog shows status, active version, draft/published version summary,
-  timestamps, notes, profile inventory counts, train/test upload forms, mapping
-  review tables, corrected output JSON, save approval, and publish controls.
+  timestamps, notes, profile inventory counts, saved profile detail tables,
+  train/test upload forms, mapping review tables, corrected output JSON, save
+  approval, and publish controls.
+- Saved profile detail tables show versions, training examples, fingerprints,
+  field mappings, and projection mappings returned by
+  `api.illustrationProfile`.
+- Profile detail includes a Carrier logo panel for uploading or clearing the
+  approved PNG/JPEG/WebP carrier logo used by generator runtime matches.
 - Train/test upload fields: `file`, `notes`, `maxPages`, `useFastModel`.
+- Training example statuses include `training`, `needs_review`, `reviewed`,
+  `rejected`, and archived/uploaded states from the backend.
+- Saved training examples show a Review action when the completed run has a
+  persisted proposal. Older `needs_review` examples without
+  `metadata.reviewProposal` show an Upload again action that scrolls back to
+  Training PDF so the admin can regenerate review data.
 - Field mapping review columns: MANLE Field, Detected Value, Evidence,
   Confidence, Strategy, Transform, Required, Action.
 - Fingerprint and projection mapping tables support inline edit/ignore/restore.
 - Publish is disabled until reviewed fingerprints and field mappings are saved
   to the draft version.
 - Creates through `api.createIllustrationProfile`.
+- Upload-to-upsert creates or opens a profile through
+  `api.upsertIllustrationProfileFromPdf`.
 - Opens details through `api.illustrationProfile`.
 - Training/testing/publishing use `api.trainIllustrationProfile`,
   `api.testIllustrationProfile`,
   `api.correctIllustrationTrainingExample`, and
   `api.publishIllustrationProfile`.
+- Carrier logo upload/removal uses `api.uploadIllustrationCarrierLogo` and
+  `api.clearIllustrationCarrierLogo`.
 
 `AuditView`:
 

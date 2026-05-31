@@ -15,6 +15,7 @@ import {
   nextSortState,
   numberField,
   sortedRows,
+  useConfirmDialog,
   useFeedbackState,
 } from '../adminShared';
 import type { SortState, SortValue } from '../adminShared';
@@ -34,6 +35,7 @@ const priceTierSortAccessors: Record<PriceTierSortKey, (tier: PriceTier) => Sort
 export default function TiersView({ data, reload }: { data: AdminData; reload: () => Promise<void> }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<PriceTier | null>(null);
+  const confirmDialog = useConfirmDialog();
   const [message, setMessage] = useFeedbackState('success');
   const [error, setError] = useFeedbackState('error');
   const [sort, setSort] = useState<SortState<PriceTierSortKey> | null>(null);
@@ -79,7 +81,12 @@ export default function TiersView({ data, reload }: { data: AdminData; reload: (
   }
 
   async function deleteTier(tier: PriceTier) {
-    if (!window.confirm(`Delete tier ${tier.code}? This cannot be undone.`)) return;
+    if (!(await confirmDialog({
+      title: 'Delete tier?',
+      message: `Delete ${tier.code}? This cannot be undone.`,
+      confirmLabel: 'Delete tier',
+      variant: 'danger',
+    }))) return;
     setError('');
     setMessage('');
     try {

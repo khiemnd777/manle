@@ -10,7 +10,7 @@ export type IllustrationPremiumMode = 'monthly' | 'annual' | 'quarterly';
 
 export type IllustrationProfileStatus = 'draft' | 'active' | 'archived';
 export type IllustrationProfileVersionStatus = 'draft' | 'published' | 'archived';
-export type IllustrationTrainingExampleStatus = 'uploaded' | 'training' | 'reviewed' | 'rejected' | 'archived';
+export type IllustrationTrainingExampleStatus = 'uploaded' | 'training' | 'needs_review' | 'reviewed' | 'rejected' | 'archived';
 export type IllustrationExtractionRunType = 'admin_train' | 'admin_test' | 'runtime_extract';
 export type IllustrationExtractionRunStatus = 'pending' | 'unsupported_profile' | 'needs_review' | 'succeeded' | 'failed';
 
@@ -143,6 +143,10 @@ export type IllustrationProfileSummary = {
   productType: IllustrationProductType;
   status: IllustrationProfileStatus;
   notes: string;
+  carrierLogoUrl?: string | null;
+  carrierLogoMimeType?: string | null;
+  carrierLogoFileName?: string | null;
+  carrierLogoFileSizeBytes?: number | null;
   activeVersionId?: string | null;
   activeVersionNumber?: number | null;
   createdAt: string;
@@ -170,6 +174,7 @@ export type IllustrationProfileDetail = IllustrationProfileSummary & {
   fieldMappings: IllustrationProfileFieldMapping[];
   projectionMappings: IllustrationProfileProjectionMapping[];
   examples: IllustrationTrainingExampleSummary[];
+  runs: IllustrationExtractionRunSummary[];
 };
 
 export type CreateIllustrationProfileInput = {
@@ -179,12 +184,44 @@ export type CreateIllustrationProfileInput = {
   notes?: string;
 };
 
+export type IllustrationProfileIdentityExtract = {
+  carrier: string;
+  productName: string;
+  productType: IllustrationProductType;
+  confidence: number;
+  evidence: {
+    carrier?: IllustrationEvidenceSnippet;
+    productName?: IllustrationEvidenceSnippet;
+    productType?: IllustrationEvidenceSnippet;
+  };
+};
+
+export type UpsertIllustrationProfileFromPdfResult = {
+  profile: IllustrationProfileDetail;
+  identity: IllustrationProfileIdentityExtract;
+  created: boolean;
+  file: {
+    fileName: string;
+    fileSha256: string;
+    fileSizeBytes: number;
+    pageCount: number;
+    extractedPageCount: number;
+  };
+};
+
 export type UpdateIllustrationProfileInput = {
   carrier?: string;
   productName?: string;
   productType?: IllustrationProductType;
   status?: IllustrationProfileStatus;
   notes?: string;
+};
+
+export type UpdateIllustrationCarrierLogoInput = {
+  fileName: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  fileSizeBytes: number;
+  dataUrl: string;
 };
 
 export type IllustrationProfileFingerprint = {
@@ -401,6 +438,9 @@ export type IllustrationRuntimeExtractSuccess = {
   status: 'succeeded';
   extract: IllustrationExtract;
   match: IllustrationProfileMatch;
+  assets?: {
+    carrierLogoUrl?: string | null;
+  };
   runId?: string;
   warnings?: IllustrationValidationIssue[];
 };

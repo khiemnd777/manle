@@ -1,5 +1,3 @@
-begin;
-
 create extension if not exists pgcrypto;
 
 create table if not exists illustration_profiles (
@@ -58,7 +56,7 @@ create table if not exists illustration_training_examples (
   file_sha256 text not null check (length(file_sha256) = 64),
   mime_type text not null default 'application/pdf',
   file_size_bytes bigint not null default 0 check (file_size_bytes >= 0),
-  status text not null default 'uploaded' check (status in ('uploaded', 'training', 'reviewed', 'rejected', 'archived')),
+  status text not null default 'uploaded' check (status in ('uploaded', 'training', 'needs_review', 'reviewed', 'rejected', 'archived')),
   corrected_extract jsonb not null default '{}'::jsonb,
   evidence_snippets jsonb not null default '{}'::jsonb,
   notes text not null default '',
@@ -180,5 +178,3 @@ create index if not exists illustration_profile_projection_mappings_profile_idx
   on illustration_profile_projection_mappings (profile_id);
 create index if not exists illustration_profile_projection_mappings_required_idx
   on illustration_profile_projection_mappings (profile_version_id, required);
-
-commit;

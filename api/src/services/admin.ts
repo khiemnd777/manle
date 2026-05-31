@@ -31,7 +31,7 @@ export async function audit(actor: Actor, action: string, targetType: string, ta
   const sql = db();
   await sql`
     insert into audit_logs (actor_id, action, target_type, target_id, metadata)
-    values (${actor.id}, ${action}, ${targetType}, ${targetId}, ${JSON.stringify(metadata)})
+    values (${actor.id}, ${action}, ${targetType}, ${targetId}, (${JSON.stringify(metadata)}::text)::jsonb)
   `;
 }
 
@@ -594,11 +594,11 @@ export async function upsertPriceTier(actor: Actor, input: TierInput) {
   `);
   await sql`
     insert into tier_entitlements (tier_code, entitlement_key, enabled, value) values
-      (${code}, 'watermark', ${watermark}, ${JSON.stringify(watermark)}),
-      (${code}, 'exports_per_day', true, ${JSON.stringify(exportLimit)}),
-      (${code}, 'branding', ${branding}, ${JSON.stringify(branding)}),
-      (${code}, 'style_editor', ${styleEditor}, ${JSON.stringify(styleEditor)}),
-      (${code}, 'benefit_editor', ${benefitEditor}, ${JSON.stringify(benefitEditor)})
+      (${code}, 'watermark', ${watermark}, (${JSON.stringify(watermark)}::text)::jsonb),
+      (${code}, 'exports_per_day', true, (${JSON.stringify(exportLimit)}::text)::jsonb),
+      (${code}, 'branding', ${branding}, (${JSON.stringify(branding)}::text)::jsonb),
+      (${code}, 'style_editor', ${styleEditor}, (${JSON.stringify(styleEditor)}::text)::jsonb),
+      (${code}, 'benefit_editor', ${benefitEditor}, (${JSON.stringify(benefitEditor)}::text)::jsonb)
     on conflict (tier_code, entitlement_key) do update set
       enabled = excluded.enabled,
       value = excluded.value,
@@ -672,7 +672,7 @@ export async function updateTierEntitlement(actor: Actor, tierCode: string, enti
   const sql = db();
   const row = await one(sql`
     insert into tier_entitlements (tier_code, entitlement_key, enabled, value)
-    values (${tierCode}, ${entitlementKey}, ${input.enabled ?? true}, ${JSON.stringify(input.value ?? false)})
+    values (${tierCode}, ${entitlementKey}, ${input.enabled ?? true}, (${JSON.stringify(input.value ?? false)}::text)::jsonb)
     on conflict (tier_code, entitlement_key) do update set
       enabled = excluded.enabled,
       value = excluded.value,

@@ -1,6 +1,7 @@
 import { ensurePdfJs } from './runtime';
 import { $, calcAge, formatCurrencyField, state } from './core';
 import { refreshCustomDropdowns } from './customDropdown';
+import { setHeaderLogo } from './headerEditor';
 import { formatPhone, render, renderAgeList, renderAgentList, setTab } from './render';
 
 /* ===================== PDF AUTO-FILL ===================== */
@@ -162,6 +163,11 @@ async function extractRuntimeIllustration(file, productType) {
     throw new Error(runtimeBlockedMessage(payload));
   }
   return payload;
+}
+
+function runtimeCarrierLogoUrl(payload: any) {
+  const value = payload?.assets?.carrierLogoUrl;
+  return typeof value === 'string' && /^data:image\/(?:png|jpeg|webp);base64,/i.test(value) ? value : '';
 }
 
 function finiteNumber(value: unknown) {
@@ -584,6 +590,7 @@ export async function handlePdfUpload(file, forTab) {
 
   try {
     const runtimeResult = await extractRuntimeIllustration(file, forTab);
+    const carrierLogoUrl = runtimeCarrierLogoUrl(runtimeResult);
     const { data: merged, rows: extractedRows } = runtimeExtractToAutofill(runtimeResult.extract);
 
     if (Object.keys(merged).length === 0 && extractedRows.length === 0) {
@@ -602,6 +609,10 @@ export async function handlePdfUpload(file, forTab) {
     // Refresh sidebar age list and re-render card
     renderAgeList();
     render();
+    if (carrierLogoUrl) {
+      setHeaderLogo(merged.productType === 'term' ? 'term' : 'iul', carrierLogoUrl, { save: false, allowLocked: true });
+      filled.push('Carrier logo');
+    }
 
     // Show success
     if (filled.length > 0) {

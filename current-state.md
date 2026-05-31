@@ -35,12 +35,27 @@ Current state:
 - Slice 13 generator upload flow now calls the backend runtime extraction API.
 - Slice 14 normalized generator extracts now render through the existing
   right-side IUL/Term card state paths.
-- Full end-to-end regression QA remains for the next slices.
+- Slice 15 regression verification is complete. Local Cindy Transamerica FFIUL
+  and Lauren Life Insurance Company of the Southwest FlexLife profiles were
+  seeded/published, runtime extraction returned `succeeded` for both known
+  samples, and an unsupported Nationwide IUL sample returned
+  `unsupported_profile`.
+- Slice 16 final validation and handoff update is complete.
+- All planned implementation slices 0-16 are complete in the working tree.
 - Generator runtime must not learn new carriers from customer uploads.
 - Generator runtime must only render when a published admin-approved profile
   matches the uploaded PDF.
 - Admin training uses OpenAI on the backend to propose mappings, but admin
   review/publish is required before customer uploads can use a profile.
+- Backend PDF extraction preserves the original uploaded byte length before
+  handing the buffer to PDF.js because PDF.js can detach the typed-array buffer
+  during parsing.
+- Admin training examples now move from `training` to `needs_review` after
+  OpenAI returns a proposal, or to `rejected` when training fails, so saved
+  profile details do not look stuck after the synchronous train request ends.
+- Admin training runs now persist the full review proposal in run metadata and
+  profile detail includes recent runs so Admin can reopen mapping review after a
+  refresh.
 - The right-side card output is the final source of truth for customer export.
 
 OpenAI model configuration:
@@ -200,14 +215,25 @@ Files changed:
 - `admin/src/views/IllustrationProfilesView.tsx`: added profile list, search,
   create, detail, train/test upload, mapping review/edit, save approval, and
   publish controls.
+- `admin/src/views/IllustrationProfilesView.tsx`: added saved profile detail
+  sections for versions, training examples, fingerprints, field mappings, and
+  projection mappings so admins can reopen a profile and inspect persisted
+  training details.
+- `admin/src/views/IllustrationProfilesView.tsx`: added upload-to-upsert form
+  for profile creation from a PDF before training.
+- `admin/src/api/client.ts`: added typed upload-to-upsert API method.
 - `admin/src/adminShared.tsx`: allowed wide admin dialogs for dense review
   tables.
 - `admin/src/views/options.ts`: added product type select options for
   illustration profiles.
 - `admin/src/styles.css`: added illustration review workbench, wide dialog,
   mapping table, evidence, and low-confidence row styles.
+- `admin/src/styles.css`: added saved profile detail table, JSON preview, and
+  collapsible inventory section styles.
 - `admin/AGENT_DIRECTORY.md`: documented the new admin client methods and
   illustration UI workflows.
+- `admin/AGENT_DIRECTORY.md`: documented saved profile detail tables in the
+  illustration profile detail dialog.
 - `fe/src/pdf.ts`: changed generator PDF uploads to call
   `POST /api/illustrations/extract`, map successful `IllustrationExtract`
   responses into the existing autofill flow, and block unsupported/needs-review
@@ -218,6 +244,51 @@ Files changed:
   projection cache.
 - `fe/AGENT_DIRECTORY.md`: documented the runtime extraction API touchpoint and
   upload behavior.
+- `compose.yaml`: passes `OPENAI_*` extractor variables into the local API
+  container so Admin training can use the configured backend key.
+- `compose.prod.yaml`: passes `OPENAI_*` extractor variables into the
+  production API container.
+- `scripts/production/prod.env.example`: documents production OpenAI extractor
+  variables.
+- `api/db/migrations/012_illustration_profiles.sql`: removed raw
+  `begin`/`commit` wrapper so the existing Bun SQL migration runner can apply
+  the migration.
+- `api/src/services/illustrations.ts`: casts JSON payload parameters to
+  `jsonb` so selectors, mappings, evidence, extracts, and run metadata persist
+  as objects instead of JSON strings.
+- `api/src/services/illustrations.ts`: added PDF identity extraction and
+  `upsertIllustrationProfileFromPdf` so Admin can upload a PDF, detect
+  carrier/product/product type, and create or open the matching profile.
+- `api/src/index.ts`: added
+  `POST /api/admin/illustration-profiles/upsert-from-pdf`.
+- `api/src/types/illustration.ts`: added profile identity extract and
+  upload-to-upsert response contracts.
+- `api/src/services/pdfExtraction.ts`: captures `fileSizeBytes` before PDF.js
+  parsing so admin training examples do not persist a detached buffer size of
+  `0`.
+- `api/db/migrations/013_illustration_training_example_needs_review.sql`:
+  expands training example status to `needs_review`, repairs existing stuck
+  training rows with completed runs, and converts JSONB values that were stored
+  as JSON strings back to objects/arrays.
+- `api/src/index.ts`: marks training examples as `needs_review` or `rejected`
+  when the OpenAI training request completes, and stores
+  `metadata.reviewProposal` for future review reloads.
+- `api/src/services/illustrations.ts`: accepts the `needs_review` training
+  example status, returns recent extraction runs with profile detail, and casts
+  JSONB update payloads before persistence.
+- `admin/src/views/IllustrationProfilesView.tsx`: adds a Review action on saved
+  training examples when a completed run has a persisted proposal, rebuilding
+  the editable review panel from saved run data. Legacy `needs_review` rows
+  without saved proposals show an Upload again action that scrolls back to the
+  Training PDF upload form.
+- `admin/src/api/client.ts`: includes profile detail runs in the Admin API
+  contract.
+- `api/src/services/admin.ts`, `api/src/services/email.ts`, and
+  `api/src/services/paddle.ts`: cast JSONB writes for audit metadata,
+  entitlement values, email variables, Paddle metadata, and webhook payloads.
+- `current-state.md`: marked Slice 15 and Slice 16 complete, recorded final
+  sample-PDF runtime verification, validation results, skipped checks, risks,
+  and follow-up next steps.
 - `api/src/config.ts`: added `OPENAI_*` extractor configuration defaults.
 - `.env.example`: documented OpenAI extractor variables.
 - `api/package.json`: added `pdfjs-dist` dependency for backend extraction.
@@ -277,14 +348,85 @@ Validation run:
   runtime API integration.
 - `cd fe && bun run build`: passed after adding Slice 14 normalized render
   mapping.
-- `cd api && bun run db:migrate`: attempted, but local Postgres was not
-  reachable, so the migration was not applied locally.
+- `docker compose --env-file .env -f compose.yaml config --quiet`: passed
+  after adding OpenAI env wiring.
+- `IMAGE_OWNER=local IMAGE_TAG=slice15 FE_ORIGIN=https://fe.example
+  ADMIN_ORIGIN=https://admin.example DATABASE_URL=postgres://... docker compose
+  --env-file scripts/production/prod.env.example -f compose.prod.yaml config
+  --quiet`: passed after adding production OpenAI env wiring.
+- `make up`: passed after Docker escalation; local Postgres/Redis/API/FE/Admin
+  stack started.
+- `curl http://127.0.0.1:8790/health`: passed after migration fix.
+- Temporary Slice 15 seed harness published local Cindy and Lauren regression
+  profiles:
+  - Cindy profile `04699c8f-4f15-4fa1-b6e0-e3dd0dbc7548`, version
+    `1b98eb2f-a19a-4bf5-8791-6ebef12f007f`, SHA-256
+    `cef71684c591024a78d4570de167c0fe17e952a4060a6368853d9d49a3870a2e`.
+  - Lauren profile `48c08102-2af1-40b0-a00e-acf238d744dc`, version
+    `2bddcaf4-43ba-49f2-8153-c91a9f09ecc9`, SHA-256
+    `615f69c603976b635f829cbc307dc47e3122e730f8b9c1b32d43a7f9902fe84c`.
+- Postgres `jsonb_typeof(source_selector)` verification confirmed remapped
+  profile selectors now persist as JSON objects instead of JSON strings.
+- Cindy runtime `POST /api/illustrations/extract` returned `succeeded` with
+  carrier `Transamerica Life Insurance Company`, product
+  `Transamerica Financial Foundation IUL II`, client `Cindy Ngoc Phuong`, age
+  `51`, risk class `Preferred`, face amount `220000`, monthly premium `300`,
+  agent `Ms. Regina Dang`, and 12 projection rows.
+- Lauren runtime `POST /api/illustrations/extract` returned `succeeded` with
+  carrier `Life Insurance Company of the Southwest`, product `FlexLife`, client
+  `Lauren Nguyen`, age `28`, risk class `Select Non-Tobacco`, state `Texas`,
+  face amount `1000000`, monthly premium `637`, pay years `20`, agent
+  `Tri Ngo`, and 4 projection rows.
+- Unsupported Nationwide IUL sample returned `unsupported_profile` with message
+  `Profile matching requires at least one approved non-carrier fingerprint.`
+- `cd api && bun run build`: passed after Slice 16 handoff update.
+- `cd admin && bun run build`: passed after Slice 16 handoff update.
+- `cd fe && bun run build`: passed after Slice 16 handoff update.
+- `docker compose --env-file .env -f compose.yaml config --quiet`: passed
+  after Slice 16 handoff update.
+- Production compose `config --quiet` with placeholder required env: passed
+  after Slice 16 handoff update.
+- `git diff --check`: passed after Slice 16 handoff update.
+- `git status --short --branch`: final Slice 16 status showed expected modified
+  source/config/state files only.
+- `cd admin && bun run build`: passed after adding saved profile detail tables.
+- `cd api && bun run build`: passed after adding upload-to-upsert profile flow.
+- `cd admin && bun run build`: passed after adding upload-to-upsert profile
+  flow.
+- Focused `bun --eval` identity extraction check passed for Cindy
+  Transamerica, Lauren FlexLife, and Nationwide Indexed UL Accumulator III PDFs.
+- Focused `bun --eval` PDF extraction regression check passed for the
+  Nationwide Indexed UL Accumulator III attachment; extractor now returns
+  `fileSizeBytes: 1438086` instead of `0`.
+- `cd api && bun run build`: passed after preserving uploaded PDF file size
+  before PDF.js parsing.
+- `psql ... -f api/db/migrations/013_illustration_training_example_needs_review.sql`:
+  passed; updated the current Nationwide training example from `training` to
+  `needs_review`.
+- `DATABASE_URL=postgres://... bun run db:migrate`: passed with escalated
+  sandbox permission; the migration runner applied all 13 local migrations.
+- Postgres verification confirmed the current Nationwide run JSONB columns are
+  `object` values, not JSON strings.
+- `cd api && bun run build`: passed after the `needs_review` status and JSONB
+  update fixes.
+- `cd admin && bun run build`: passed after adding the `needs_review` admin
+  type.
+- `DATABASE_URL=postgres://... bun --eval ...getIllustrationProfile(...)`:
+  passed with escalated sandbox permission; confirmed current Nationwide detail
+  returns one `needs_review` example and one succeeded run, but that older run
+  has no persisted `reviewProposal`.
+- `cd api && bun run build`: passed after adding profile detail runs and
+  persisted training review proposals.
+- `cd admin && bun run build`: passed after adding the saved example Review
+  action.
+- In-app browser opened `http://localhost:5176/`, but UI verification could not
+  continue because that browser session was not logged in to Admin.
 
 Validation skipped:
-- Browser QA was not run.
-- Export PDF/PNG/JPG checks were not run.
-- Local database migration verification was not completed because the dev
-  database connection failed.
+- Browser QA against an authenticated Admin modal was not completed because the
+  in-app browser session was unauthenticated.
+- Export PDF/PNG/JPG checks were not run because browser/export QA was not
+  explicitly requested.
 
 Risks:
 - Parser/profile matching must avoid false positives between products from the
@@ -311,8 +453,15 @@ Implementation progress ledger:
 - [x] Slice 12: Add generator runtime extraction API.
 - [x] Slice 13: Update generator upload flow to call backend extraction.
 - [x] Slice 14: Render normalized IUL/Term extracts into the right-side card.
-- [ ] Slice 15: Regression verify with Cindy and Lauren PDFs.
-- [ ] Slice 16: Final build validation and handoff update.
+- [x] Slice 15: Regression verify with Cindy and Lauren PDFs.
+- [x] Slice 16: Final build validation and handoff update.
+
+Next steps:
+- Commit and push the current working-tree changes when requested.
+- Run browser QA for generator upload/card rendering only if requested.
+- Run export PDF/PNG/JPG checks only if requested.
+- Keep the local Docker stack running only as long as runtime verification is
+  needed; stop it with `make stop` when finished.
 
 Slice details:
 
@@ -1016,6 +1165,38 @@ Validation:
 Dependencies:
 - Slices 1-14.
 
+Completed:
+- Local stack startup initially failed because migration 012 used raw
+  `begin`/`commit`; removing the wrapper let API migration complete through the
+  existing Bun SQL migration runner.
+- Admin training/runtime in Docker would not see `OPENAI_*` despite root `.env`
+  being configured; compose wiring is now fixed for local and production.
+- Runtime verification exposed JSONB selector persistence as strings when Bun
+  SQL received `JSON.stringify(...)` values directly. JSONB writes now cast via
+  text before `jsonb`, and the seeded profile selectors verify as JSON objects.
+- Local deterministic Cindy/Lauren profiles were seeded and published through
+  service functions.
+- Cindy runtime extraction returned `succeeded` for the Transamerica FFIUL
+  sample with expected client, policy, agent, and projection values.
+- Lauren runtime extraction returned `succeeded` for the FlexLife summary sample
+  with expected client, policy, agent, and projection values.
+- Unsupported Nationwide IUL runtime extraction returned `unsupported_profile`
+  and did not match the published Cindy/Lauren profiles.
+
+Validation completed:
+- `docker compose --env-file .env -f compose.yaml config --quiet`: passed.
+- Production compose `config --quiet` with placeholder required env: passed.
+- `make up`: passed after escalation.
+- `curl http://127.0.0.1:8790/health`: passed.
+- Temporary Slice 15 seed harness: passed for Cindy and Lauren.
+- Runtime `POST /api/illustrations/extract`: passed for Cindy and Lauren.
+- Runtime `POST /api/illustrations/extract`: passed unsupported-profile block
+  for the Nationwide sample.
+- `cd api && bun run build`: passed.
+- `cd admin && bun run build`: passed.
+- `cd fe && bun run build`: passed.
+- `git diff --check`: passed.
+
 ## Slice 16: Final validation and handoff update
 Labels: area:docs, area:api, area:admin, area:fe, risk:contract, type:docs
 
@@ -1043,6 +1224,25 @@ Validation:
 
 Dependencies:
 - Update after every completed slice, and again after final validation.
+
+Completed:
+- This handoff file now records implemented state, changed files, sample-PDF
+  runtime verification, validation commands, skipped browser/export checks, and
+  remaining next steps.
+- The implementation ledger marks all slices through Slice 16 complete.
+- Final git status was reviewed; the remaining modified files are the expected
+  API, Docker/env example, and state files.
+
+Validation completed:
+- `git status --short --branch`: showed expected modified files only.
+- `git diff --check`: passed after the Slice 16 handoff update.
+- `docker compose --env-file .env -f compose.yaml config --quiet`: passed
+  after the Slice 16 handoff update.
+- Production compose `config --quiet` with placeholder required env: passed
+  after the Slice 16 handoff update.
+- `cd api && bun run build`: passed after the Slice 16 handoff update.
+- `cd admin && bun run build`: passed after the Slice 16 handoff update.
+- `cd fe && bun run build`: passed after the Slice 16 handoff update.
 
 Progress update rule:
 After each slice is completed, update this file before moving on:

@@ -1,5 +1,6 @@
 import { $ } from './core';
 import { authorizeFeatureUse, canUseEntitlement, entitlementsLoaded } from './account';
+import { showErrorDialog } from './dialog';
 
 type ProductTab = 'iul' | 'term';
 
@@ -141,6 +142,7 @@ function restoreProductDefault(product: ProductTab, options: { save?: boolean } 
   if (title) title.innerHTML = defaults.title || '';
   if (title && titleInput) titleInput.value = textFromTitle(title);
   if (logo && defaults.logo) logo.src = defaults.logo;
+  if (logo) delete logo.dataset.officialCarrierLogo;
   if (preview && defaults.logo) preview.src = defaults.logo;
   if (options.save ?? false) scheduleSaveCallback();
 }
@@ -168,7 +170,9 @@ function syncHeaderLockState() {
       logoPill.classList.toggle('entitlement-locked', !editable);
       logoPill.title = editable ? 'Click để đổi logo' : 'Upgrade tier to unlock logo editing';
     }
-    if (entitlementsLoaded() && !editable) restoreProductDefault(product, { save: false });
+    if (entitlementsLoaded() && !editable && logoFor(product)?.dataset.officialCarrierLogo !== 'true') {
+      restoreProductDefault(product, { save: false });
+    }
   });
   footerLogoImages().forEach(logo => {
     logo.classList.toggle('entitlement-locked', !editable);
@@ -189,7 +193,7 @@ async function authorizeHeaderEdit() {
 
 function handleHeaderAuthorizationError(error: unknown) {
   syncHeaderLockState();
-  alert((error as Error).message || error);
+  void showErrorDialog(error, 'Không thể chỉnh Header / Logo');
 }
 
 export function setHeaderTitle(product: ProductTab, value: string, options: { save?: boolean; allowLocked?: boolean } = {}) {
@@ -215,8 +219,8 @@ function syncEditorTitleFromPreview(product: ProductTab) {
   scheduleSaveCallback();
 }
 
-export function setHeaderLogo(product: ProductTab, dataUrl: string, options: { save?: boolean } = {}) {
-  if (entitlementsLoaded() && !canEditHeader()) {
+export function setHeaderLogo(product: ProductTab, dataUrl: string, options: { save?: boolean; allowLocked?: boolean } = {}) {
+  if (!options.allowLocked && entitlementsLoaded() && !canEditHeader()) {
     restoreProductDefault(product, { save: false });
     return;
   }
@@ -225,7 +229,14 @@ export function setHeaderLogo(product: ProductTab, dataUrl: string, options: { s
   const preview = logoPreviewFor(product);
   if (!dataUrl) return;
 
-  if (logo) logo.src = dataUrl;
+  if (logo) {
+    logo.src = dataUrl;
+    if (options.allowLocked) {
+      logo.dataset.officialCarrierLogo = 'true';
+    } else {
+      delete logo.dataset.officialCarrierLogo;
+    }
+  }
   if (preview) preview.src = dataUrl;
   if (options.save ?? true) scheduleSaveCallback();
 }

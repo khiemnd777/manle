@@ -1,3 +1,5 @@
+import { showErrorDialog } from './dialog';
+
 const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8787';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);
 
@@ -543,7 +545,7 @@ function resumeOAuthCheckoutFromUrl() {
     setAuthMessage('Login completed, but checkout could not be resumed.', 'error');
     return;
   }
-  startCheckout(tier).catch(error => alert(error.message || error));
+  startCheckout(tier).catch(error => void showErrorDialog(error, 'Không thể mở checkout'));
 }
 
 async function loadAccount() {
@@ -843,7 +845,7 @@ function bindAuthUi() {
   byId('profileSignupBtn')?.addEventListener('click', () => openAuth('signup'));
   byId('profileAccountTabBtn')?.addEventListener('click', () => setProfileSection('account', true));
   byId('profilePasswordTabBtn')?.addEventListener('click', () => setProfileSection('password', true));
-  byId('profileBillingBtn')?.addEventListener('click', () => openProfileBilling().catch(error => alert(error.message || error)));
+  byId('profileBillingBtn')?.addEventListener('click', () => openProfileBilling().catch(error => void showErrorDialog(error, 'Không thể mở billing portal')));
   byId('authCloseBtn')?.addEventListener('click', closeAuth);
   byId('authForgotBtn')?.addEventListener('click', () => setAuthMode('forgot'));
   byId('authBackToLoginBtn')?.addEventListener('click', () => setAuthMode('login'));
@@ -861,11 +863,11 @@ function bindAuthUi() {
   });
   byId<HTMLFormElement>('authLoginForm')?.addEventListener('submit', event => {
     event.preventDefault();
-    submitAuth(event.currentTarget as HTMLFormElement, 'login').catch(error => alert(error.message || error));
+    submitAuth(event.currentTarget as HTMLFormElement, 'login').catch(error => void showErrorDialog(error, 'Login failed'));
   });
   byId<HTMLFormElement>('authSignupForm')?.addEventListener('submit', event => {
     event.preventDefault();
-    submitAuth(event.currentTarget as HTMLFormElement, 'signup').catch(error => alert(error.message || error));
+    submitAuth(event.currentTarget as HTMLFormElement, 'signup').catch(error => void showErrorDialog(error, 'Signup failed'));
   });
   byId<HTMLFormElement>('authForgotForm')?.addEventListener('submit', event => {
     event.preventDefault();
@@ -883,8 +885,8 @@ function bindAuthUi() {
     event.preventDefault();
     submitPassword(event.currentTarget as HTMLFormElement).catch(error => setProfileMessage(error.message || String(error), 'error'));
   });
-  byId('landingLogoutBtn')?.addEventListener('click', () => logout().catch(error => alert(error.message || error)));
-  byId('profileLogoutBtn')?.addEventListener('click', () => logout().catch(error => alert(error.message || error)));
+  byId('landingLogoutBtn')?.addEventListener('click', () => logout().catch(error => void showErrorDialog(error, 'Logout failed')));
+  byId('profileLogoutBtn')?.addEventListener('click', () => logout().catch(error => void showErrorDialog(error, 'Logout failed')));
 
   const resetToken = new URLSearchParams(window.location.search).get('reset_token');
   if (resetToken) {
@@ -903,7 +905,7 @@ function bindCheckoutButtons() {
     const button = (event.target as Element | null)?.closest<HTMLElement>('[data-checkout-tier]');
     if (!button) return;
     const tier = button.dataset.checkoutTier || 'free';
-    startCheckout(tier).catch(error => alert(error.message || error));
+    startCheckout(tier).catch(error => void showErrorDialog(error, 'Không thể mở checkout'));
   });
 }
 
@@ -962,7 +964,7 @@ export async function authorizeFeatureUse(feature: FeatureKey, label = 'this fea
 export function bindAccountAndBilling() {
   renderAccount();
   bindAuthUi();
-  openPaddlePaymentLinkCheckout().catch(error => alert(error.message || error));
+  openPaddlePaymentLinkCheckout().catch(error => void showErrorDialog(error, 'Không thể mở checkout'));
   loadPricing().catch(error => console.warn('Pricing state unavailable:', error));
   loadAccount().catch(error => {
     console.warn('Account state unavailable:', error);

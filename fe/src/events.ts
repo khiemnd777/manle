@@ -1,5 +1,6 @@
 import { $, CURRENCY_FIELD_IDS, formatCurrencyField, formatCurrencyFields, getCurrentAge, state } from './core';
 import { refreshCustomDropdowns } from './customDropdown';
+import { confirmAppDialog } from './dialog';
 import { exportCardImage } from './exportCard';
 import { bindLivingBenefitColumnEditors } from './livingBenefitColumns';
 import { repairAllLivingBenefitFormats } from './livingBenefitFormat';
@@ -83,8 +84,14 @@ export function bindAll() {
 
   // Quick "New Client" — clears client/policy fields, keeps agent + rate.
   // Useful for processing multiple clients in a row without page reload.
-  $('newClientBtn').addEventListener('click', () => {
-    if (!confirm('Tạo client mới?\nSẽ xoá thông tin khách hàng và policy hiện tại,\nnhưng giữ lại agent + rate + nội dung quyền lợi.')) return;
+  $('newClientBtn').addEventListener('click', async () => {
+    if (!(await confirmAppDialog({
+      title: 'Tạo client mới?',
+      message: 'Sẽ xoá thông tin khách hàng và policy hiện tại, nhưng giữ lại agent, rate và nội dung quyền lợi.',
+      confirmLabel: 'Tạo client mới',
+      cancelLabel: 'Hủy',
+      variant: 'warning',
+    }))) return;
     // Reset client fields to defaults / empty
     $('firstName').value = '';
     $('lastName').value  = '';
@@ -128,8 +135,14 @@ export function bindAll() {
     $('firstName').focus();
   });
 
-  $('resetBtn').addEventListener('click', () => {
-    if (!confirm('Reset toàn bộ về mặc định?\n(Bản ghi đã lưu cũng sẽ bị xoá)')) return;
+  $('resetBtn').addEventListener('click', async () => {
+    if (!(await confirmAppDialog({
+      title: 'Reset toàn bộ?',
+      message: 'Toàn bộ dữ liệu form và bản ghi đã lưu sẽ được xoá, sau đó app tải lại về mặc định.',
+      confirmLabel: 'Reset về mặc định',
+      cancelLabel: 'Hủy',
+      variant: 'danger',
+    }))) return;
     disableStatePersistence();
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
     location.reload();

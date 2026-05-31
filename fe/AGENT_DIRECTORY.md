@@ -205,6 +205,8 @@ Frontend uses `VITE_API_BASE_URL` or `http://127.0.0.1:8787`.
 - Multipart `file`, plus `productType` from the upload zone (`iul` or `term`).
 - A `succeeded` response maps `IllustrationExtract` into the existing
   `applyExtracted` flow and renders the card.
+- A `succeeded` response may include `assets.carrierLogoUrl`; `src/pdf.ts`
+  applies it to the active card header through `setHeaderLogo(..., allowLocked)`.
 - IUL projection rows populate `state.actualCSV`, `state.actualPVMap`,
   `state.actualDBMap`, and `state.ages` so the right-side card renders
   extracted cash/death-benefit rows; Term uploads clear IUL projection cache.

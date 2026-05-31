@@ -12,6 +12,7 @@ import {
   dateOnly,
   field,
   messageFromError,
+  useConfirmDialog,
   useFeedbackState,
 } from '../adminShared';
 
@@ -102,6 +103,7 @@ export default function EmailsView({ data, reload }: { data: AdminData; reload: 
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<EmailTemplate | null>(null);
   const [testing, setTesting] = useState<EmailTemplate | null>(null);
+  const confirmDialog = useConfirmDialog();
   const [message, setMessage] = useFeedbackState('success');
   const [error, setError] = useFeedbackState('error');
   const settings = data.emailSettings;
@@ -184,7 +186,12 @@ export default function EmailsView({ data, reload }: { data: AdminData; reload: 
   }
 
   async function deleteTemplate(template: EmailTemplate) {
-    if (!window.confirm(`Delete email template ${template.key}? This cannot be undone.`)) return;
+    if (!(await confirmDialog({
+      title: 'Delete email template?',
+      message: `Delete ${template.key}? This cannot be undone.`,
+      confirmLabel: 'Delete template',
+      variant: 'danger',
+    }))) return;
     setError('');
     setMessage('');
     try {

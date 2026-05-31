@@ -2,6 +2,7 @@ import './runtime';
 import { $ } from './core';
 import { bindAccountAndBilling } from './account';
 import { bindCustomDropdowns } from './customDropdown';
+import { bindAppDialog } from './dialog';
 import { bindAll } from './events';
 import { bindHeaderEditor, captureHeaderDefaults, setHeaderEditorSaveScheduler } from './headerEditor';
 import {
@@ -126,6 +127,7 @@ export function initDomApp() {
   repairAllLivingBenefitFormats();
   renderAgeList();
   renderAgentList();
+  bindAppDialog();
   bindAll();
   bindLandingNavigation();
   bindLandingParallax();

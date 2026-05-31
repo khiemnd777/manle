@@ -9,9 +9,11 @@ import {
   requiredIllustrationFieldPaths,
   validateIllustrationExtract,
   type CreateIllustrationProfileInput,
+  type IllustrationEvidenceSnippet,
   type IllustrationExtractionRunStatus,
   type IllustrationExtractionRunSummary,
   type IllustrationExtractionRunType,
+  type IllustrationFieldPath,
   type IllustrationProfileDetail,
   type IllustrationProfileFieldMapping,
   type IllustrationProfileFingerprint,
@@ -21,16 +23,20 @@ import {
   type IllustrationProfileVersionStatus,
   type IllustrationProfileVersionSummary,
   type IllustrationProductType,
+  type IllustrationProfileIdentityExtract,
   type IllustrationRuntimeExtractStatus,
   type IllustrationTrainingCorrectionInput,
   type IllustrationTrainingExampleStatus,
   type IllustrationTrainingExampleSummary,
   type JsonObject,
+  type PdfExtractionResult,
   type StoreIllustrationExtractionRunInput,
   type StoreIllustrationTrainingExampleInput,
+  type UpdateIllustrationCarrierLogoInput,
   type UpdateIllustrationExtractionRunInput,
   type UpdateIllustrationProfileInput,
   type UpdateIllustrationTrainingExampleInput,
+  type UpsertIllustrationProfileFromPdfResult,
 } from '../types/illustration';
 import { audit } from './admin';
 
@@ -41,6 +47,10 @@ type ProfileRow = {
   productType: IllustrationProductType;
   status: IllustrationProfileStatus;
   notes: string;
+  carrierLogoUrl?: string | null;
+  carrierLogoMimeType?: string | null;
+  carrierLogoFileName?: string | null;
+  carrierLogoFileSizeBytes?: number | string | null;
   activeVersionId?: string | null;
   activeVersionNumber?: number | string | null;
   createdAt: string | Date;
@@ -68,6 +78,8 @@ export type PublishedIllustrationProfileVersion = {
   projectionMappings: IllustrationProfileProjectionMapping[];
 };
 
+const MAX_CARRIER_LOGO_FILE_BYTES = 720 * 1024;
+
 function cleanText(value?: string) {
   return (value || '').trim();
 }
@@ -87,6 +99,202 @@ function jsonPayloadOrNull(value: unknown) {
   return jsonPayload(value);
 }
 
+function isProfileIdentityFieldPath(path: string) {
+  return path === 'carrier' || path === 'productName' || path === 'productType';
+}
+
+function publishRequiredFieldPaths(productType: IllustrationProductType) {
+  return requiredIllustrationFieldPaths(productType).filter(path => !isProfileIdentityFieldPath(path));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function recordValue(value: unknown, key: string) {
+  return isRecord(value) ? value[key] : undefined;
+}
+
+function extractFieldValue(input: unknown, fieldPath: IllustrationFieldPath) {
+  const parts = fieldPath.split('.');
+  let current: unknown = input;
+  for (const part of parts) {
+    current = recordValue(current, part);
+  }
+  return current;
+}
+
+function hasCorrectedFieldValue(input: unknown, fieldPath: IllustrationFieldPath) {
+  const value = extractFieldValue(input, fieldPath);
+  if (typeof value === 'string') return Boolean(value.trim());
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'boolean') return true;
+  return value != null;
+}
+
+function evidenceForField(
+  correctedExtract: unknown,
+  evidenceSnippets: unknown,
+  fieldPath: IllustrationFieldPath,
+): IllustrationEvidenceSnippet | null {
+  const extractEvidence = recordValue(correctedExtract, 'evidence');
+  const candidates = [extractEvidence, evidenceSnippets];
+  for (const candidate of candidates) {
+    if (!isRecord(candidate)) continue;
+    for (const [key, value] of Object.entries(candidate)) {
+      if (key !== fieldPath && !key.startsWith(`${fieldPath}:`) && recordValue(value, 'fieldPath') !== fieldPath) continue;
+      if (!isRecord(value)) continue;
+      const page = recordValue(value, 'page');
+      const text = recordValue(value, 'text');
+      const confidence = recordValue(value, 'confidence');
+      if (typeof page !== 'number' || typeof text !== 'string' || typeof confidence !== 'number') continue;
+      return {
+        page,
+        text,
+        confidence,
+        fieldPath,
+        source: 'pdf_text',
+      };
+    }
+  }
+  return null;
+}
+
+function selectorWithPageHint(selector: JsonObject, evidence: IllustrationEvidenceSnippet | null): JsonObject {
+  return evidence && evidence.page > 0 ? { ...selector, pageHint: evidence.page } : selector;
+}
+
+function fieldMapping(
+  fieldPath: IllustrationFieldPath,
+  sourceSelector: JsonObject,
+  transformRules: JsonObject = {},
+  evidence: IllustrationEvidenceSnippet | null = null,
+): IllustrationProfileFieldMapping {
+  return {
+    fieldPath,
+    sourceStrategy: 'regex',
+    sourceSelector,
+    transformRules,
+    required: false,
+    minConfidence: Math.max(0.7, Math.min(1, evidence?.confidence ?? 0.8)),
+    notes: evidence ? `Auto-added from reviewed evidence: ${evidence.text.slice(0, 120)}` : 'Auto-added from reviewed corrected extract.',
+  };
+}
+
+function termFallbackFieldMapping(
+  fieldPath: IllustrationFieldPath,
+  evidence: IllustrationEvidenceSnippet | null,
+): IllustrationProfileFieldMapping | null {
+  switch (fieldPath) {
+    case 'client.fullName':
+      return fieldMapping(fieldPath, { regex: '(?:Designed For:|Insured Information)\\s*(?<value>[^\\n]+)' }, {}, evidence);
+    case 'client.age':
+      return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?:Female|Male),\\s+Age\\s+(?<value>\\d{1,3})' }, evidence), {}, evidence);
+    case 'client.gender':
+      return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?<value>Female|Male),\\s+Age\\s+\\d{1,3}' }, evidence), { gender: true }, evidence);
+    case 'client.state':
+      return { ...fieldMapping(fieldPath, selectorWithPageHint({ label: 'Issue State:' }, evidence), {}, evidence), sourceStrategy: 'label_value' };
+    case 'client.riskClass':
+      return { ...fieldMapping(fieldPath, selectorWithPageHint({ label: 'Risk Class:' }, evidence), {}, evidence), sourceStrategy: 'label_value' };
+    case 'policy.faceAmount':
+      return fieldMapping(fieldPath, { regex: 'Initial Face Amount:\\s*(?<value>\\$?\\d[\\d,]*(?:\\.\\d+)?)' }, { currency: true }, evidence);
+    case 'policy.termLength':
+      return fieldMapping(fieldPath, { regex: '(?:Term Duration\\s*-\\s*|\\$?\\d[\\d,]*(?:\\.\\d+)?\\s+)(?<value>\\d{1,2})\\s+(?:years|Years\\s+Total Face Amount)' }, {}, evidence);
+    case 'policy.monthlyPremium':
+      return fieldMapping(fieldPath, { regex: '(?<value>\\$?\\d[\\d,]*(?:\\.\\d+)?)\\s+Terminal Illness Accelerated Death Benefit[\\s\\S]{0,240}?Initial Monthly Premium' }, { currency: true }, evidence);
+    case 'policy.premiumMode':
+      return fieldMapping(fieldPath, selectorWithPageHint({ regex: 'Premium Mode:\\s*(?<value>Monthly|Annual|Quarterly)' }, evidence), {}, evidence);
+    case 'agent.name':
+      return { ...fieldMapping(fieldPath, selectorWithPageHint({ label: 'Agent/Representative:' }, evidence), {}, evidence), sourceStrategy: 'label_value', required: false };
+    case 'agent.phone':
+      return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?<value>\\(\\d{3}\\)\\s*\\d{3}[-\\s]\\d{4})' }, evidence), { phone: true }, evidence);
+    default:
+      return null;
+  }
+}
+
+function iulFallbackFieldMapping(
+  fieldPath: IllustrationFieldPath,
+  evidence: IllustrationEvidenceSnippet | null,
+): IllustrationProfileFieldMapping | null {
+  switch (fieldPath) {
+    case 'client.fullName':
+      return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?:Insured:|Insured Information|Designed For:)\\s*(?<value>[^\\n]+)' }, evidence), {}, evidence);
+    case 'client.age':
+      return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?:Age:?\\s*|(?:Female|Male),\\s+Age\\s+)(?<value>\\d{1,3})' }, evidence), {}, evidence);
+    case 'client.gender':
+      return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?<value>Female|Male|M|F)(?:,\\s+Age\\s+\\d{1,3})?' }, evidence), { gender: true }, evidence);
+    case 'client.state':
+      return { ...fieldMapping(fieldPath, selectorWithPageHint({ label: 'Issue State:' }, evidence), {}, evidence), sourceStrategy: 'label_value' };
+    case 'client.riskClass':
+      return { ...fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?:Rate Class|Risk Class):?\\s*(?<value>[^\\n]+)' }, evidence), {}, evidence), sourceStrategy: 'regex' };
+    case 'policy.faceAmount':
+      return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?:Specified amount|Initial Face Amount|Total Face Amount):?\\s*(?<value>\\$?\\d[\\d,]*(?:\\.\\d+)?)' }, evidence), { currency: true }, evidence);
+    case 'policy.monthlyPremium':
+      return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?:Premium:|Monthly Premium|Initial Monthly Premium(?: including all Riders)?):?\\s*(\\$?\\d[\\d,]*(?:\\.\\d+)?)|(\\$?\\d[\\d,]*(?:\\.\\d+)?)\\s+(?:Initial Monthly Premium|Monthly Premium)' }, evidence), { currency: true }, evidence);
+    case 'policy.premiumMode':
+      return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?:Premium Mode|Mode):?\\s*(?<value>Monthly|Annual|Quarterly)' }, evidence), {}, evidence);
+    case 'policy.payYears':
+      return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?:Duration|Pay Years?):?\\s*(?<value>\\d{1,2})' }, evidence), {}, evidence);
+    case 'agent.name':
+      return { ...fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?:Life Insurance Producer|Agent/Representative|Agent):?\\s*(?<value>[^\\n]+)' }, evidence), {}, evidence), required: false };
+    case 'agent.phone':
+      return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?<value>\\(\\d{3}\\)\\s*\\d{3}[-\\s]\\d{4})' }, evidence), { phone: true }, evidence);
+    default:
+      return null;
+  }
+}
+
+function fallbackFieldMapping(
+  productType: IllustrationProductType,
+  fieldPath: IllustrationFieldPath,
+  evidence: IllustrationEvidenceSnippet | null,
+): IllustrationProfileFieldMapping | null {
+  if (productType === 'term') return termFallbackFieldMapping(fieldPath, evidence);
+  if (productType === 'iul') return iulFallbackFieldMapping(fieldPath, evidence);
+  return null;
+}
+
+function assertReviewedMappingsComplete(productType: IllustrationProductType, mappings: IllustrationProfileFieldMapping[]) {
+  const missing = publishRequiredFieldPaths(productType).filter(path =>
+    !mappings.some(mapping => mapping.fieldPath === path && mapping.required && mapping.sourceStrategy !== 'manual'),
+  );
+  if (missing.length) {
+    fail(400, 'review_mapping_incomplete', `Cannot approve reviewed mappings because required field mappings are missing: ${missing.join(', ')}.`);
+  }
+}
+
+function completeReviewedFieldMappings(
+  productType: IllustrationProductType,
+  input: Pick<IllustrationTrainingCorrectionInput, 'fieldMappings' | 'correctedExtract' | 'evidenceSnippets'>,
+) {
+  const mappings = (input.fieldMappings || []).filter(mapping => !isProfileIdentityFieldPath(mapping.fieldPath));
+  const mappedPaths = new Set(mappings.map(mapping => mapping.fieldPath));
+  const candidatePaths = [
+    ...publishRequiredFieldPaths(productType),
+    'client.age',
+    'client.gender',
+    'client.state',
+    'client.riskClass',
+    'policy.monthlyPremium',
+    'policy.premiumMode',
+    'agent.name',
+    'agent.phone',
+  ] as IllustrationFieldPath[];
+
+  for (const fieldPath of candidatePaths) {
+    if (mappedPaths.has(fieldPath) || !hasCorrectedFieldValue(input.correctedExtract, fieldPath)) continue;
+    const fallback = fallbackFieldMapping(productType, fieldPath, evidenceForField(input.correctedExtract, input.evidenceSnippets, fieldPath));
+    if (!fallback) continue;
+    fallback.required = publishRequiredFieldPaths(productType).includes(fieldPath);
+    mappings.push(fallback);
+    mappedPaths.add(fieldPath);
+  }
+
+  assertReviewedMappingsComplete(productType, mappings);
+  return mappings;
+}
+
 function cleanProductType(value?: string): IllustrationProductType {
   if (isIllustrationProductType(value)) return value;
   fail(400, 'invalid_product_type', 'Illustration product type must be iul or term.');
@@ -95,6 +303,183 @@ function cleanProductType(value?: string): IllustrationProductType {
 function cleanOptionalProductType(value?: string | null) {
   if (value == null || value === '') return null;
   return cleanProductType(value);
+}
+
+function normalizeWhitespace(value: string) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function cleanIdentityValue(value: string) {
+  return normalizeWhitespace(value.replace(/[®™]/g, '').replace(/[,:;]+$/g, ''));
+}
+
+function titleCaseKnownAcronyms(value: string) {
+  if (value !== value.toUpperCase()) return cleanIdentityValue(value);
+  const smallWords = new Set(['and', 'of', 'the', 'for', 'with']);
+  const acronyms = new Set(['IUL', 'UL', 'LSW', 'LB', 'II', 'III', 'IV', 'V', 'VI']);
+  return cleanIdentityValue(value)
+    .toLowerCase()
+    .split(' ')
+    .map((word, index) => {
+      const upper = word.toUpperCase();
+      if (acronyms.has(upper)) return upper;
+      if (index > 0 && smallWords.has(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+}
+
+function normalizeCarrierIdentity(value: string) {
+  const cleaned = cleanIdentityValue(value);
+  if (/transamerica life insurance company/i.test(cleaned)) return 'Transamerica Life Insurance Company';
+  if (/life insurance company of the southwest/i.test(cleaned)) return 'Life Insurance Company of the Southwest';
+  if (/nationwide life and annuity insurance company/i.test(cleaned)) return 'Nationwide Life and Annuity Insurance Company';
+  if (/nationwide life insurance company/i.test(cleaned)) return 'Nationwide Life Insurance Company';
+  return cleaned;
+}
+
+function normalizeProductIdentity(value: string) {
+  const cleaned = cleanIdentityValue(value);
+  if (/transamerica financial foundation iul ii/i.test(cleaned)) return 'Transamerica Financial Foundation IUL II';
+  if (/^flexlife\b/i.test(cleaned)) return 'FlexLife';
+  if (/nationwide indexed ul accumulator iii/i.test(cleaned)) return 'Nationwide Indexed UL Accumulator III';
+  if (/trendsetter\s+lb/i.test(cleaned)) return 'Trendsetter LB';
+  return titleCaseKnownAcronyms(cleaned);
+}
+
+function evidenceSnippet(text: string, index: number, length: number) {
+  const start = Math.max(0, index - 80);
+  const end = Math.min(text.length, index + length + 120);
+  return normalizeWhitespace(text.slice(start, end));
+}
+
+function findPdfIdentityEvidence(
+  pdf: PdfExtractionResult,
+  patterns: Array<{ regex: RegExp; normalize: (value: string) => string; confidence: number }>,
+) {
+  for (const page of pdf.pages) {
+    for (const pattern of patterns) {
+      const match = page.text.match(pattern.regex);
+      const rawValue = match?.groups?.value || match?.[0];
+      if (!match || !rawValue) continue;
+      const value = pattern.normalize(rawValue);
+      if (!value) continue;
+      return {
+        value,
+        evidence: {
+          page: page.page,
+          text: evidenceSnippet(page.text, match.index ?? 0, rawValue.length),
+          confidence: pattern.confidence,
+          source: 'pdf_text' as const,
+        },
+      };
+    }
+  }
+  return null;
+}
+
+function findFilenameProductIdentity(fileName: string | undefined, carrier: string) {
+  if (!fileName || !carrier) return null;
+  const baseName = fileName.replace(/\.[^.]+$/g, '');
+  const normalizedBaseName = normalizeWhitespace(baseName);
+  const index = normalizedBaseName.toLowerCase().indexOf(carrier.toLowerCase());
+  if (index < 0) return null;
+  const afterCarrier = normalizedBaseName.slice(index + carrier.length).split(' - ')[0].trim();
+  const value = normalizeProductIdentity(afterCarrier);
+  if (!value || value.length < 3) return null;
+  return {
+    value,
+    evidence: {
+      page: 0,
+      text: fileName,
+      confidence: 0.75,
+      source: 'filename' as const,
+    },
+  };
+}
+
+function detectProductTypeIdentity(pdf: PdfExtractionResult, productTypeHint?: IllustrationProductType | null) {
+  if (productTypeHint) {
+    return {
+      value: productTypeHint,
+      evidence: {
+        page: 0,
+        text: productTypeHint,
+        confidence: 0.9,
+        source: 'manual' as const,
+      },
+    };
+  }
+
+  const term = findPdfIdentityEvidence(pdf, [
+    { regex: /\b(?:Trendsetter|Level Term Period|Guaranteed Level Term|Term Life)\b/i, normalize: () => 'term', confidence: 0.8 },
+  ]);
+  if (term) {
+    return { value: 'term' as IllustrationProductType, evidence: term.evidence };
+  }
+
+  const iul = findPdfIdentityEvidence(pdf, [
+    { regex: /\b(?:Indexed Universal Life|IUL|Index Account|FlexLife)\b/i, normalize: () => 'iul', confidence: 0.85 },
+  ]);
+  if (iul) {
+    return { value: 'iul' as IllustrationProductType, evidence: iul.evidence };
+  }
+
+  return null;
+}
+
+export function extractIllustrationProfileIdentityFromPdf(
+  pdf: PdfExtractionResult,
+  productTypeHint?: IllustrationProductType | null,
+): IllustrationProfileIdentityExtract {
+  const carrier = findPdfIdentityEvidence(pdf, [
+    { regex: /Transamerica\s+Life\s+Insurance\s+Company/i, normalize: normalizeCarrierIdentity, confidence: 0.95 },
+    { regex: /Life\s+Insurance\s+Company\s+of\s+the\s+Southwest/i, normalize: normalizeCarrierIdentity, confidence: 0.95 },
+    { regex: /Nationwide\s+Life\s+and\s+Annuity\s+Insurance\s+Company/i, normalize: normalizeCarrierIdentity, confidence: 0.9 },
+    { regex: /Nationwide\s+Life\s+Insurance\s+Company/i, normalize: normalizeCarrierIdentity, confidence: 0.9 },
+    {
+      regex: /\b(?<value>[A-Z][A-Za-z&'-]+(?:\s+[A-Z][A-Za-z&'-]+){0,6}\s+(?:Life Insurance Company|Insurance Company))\b/,
+      normalize: normalizeCarrierIdentity,
+      confidence: 0.7,
+    },
+  ]);
+
+  if (!carrier) {
+    fail(422, 'profile_identity_not_found', 'Could not detect the illustration carrier from the uploaded PDF.');
+  }
+
+  const product = findPdfIdentityEvidence(pdf, [
+    { regex: /TRANSAMERICA\s+FINANCIAL\s+FOUNDATION\s+IUL\s+II/i, normalize: normalizeProductIdentity, confidence: 0.95 },
+    { regex: /\bFlexLife\b(?:\s+INDEXED\s+UNIVERSAL\s+LIFE|,?\s+Form\s+Number|\s+Indexed\s+Universal\s+Life)?/i, normalize: normalizeProductIdentity, confidence: 0.95 },
+    { regex: /Nationwide\s+Indexed\s+UL\s+Accumulator\s+III/i, normalize: normalizeProductIdentity, confidence: 0.9 },
+    { regex: /\b(?:Transamerica\s+)?(?<value>Trendsetter\s+LB)(?:\s+\d{2})?\b/i, normalize: normalizeProductIdentity, confidence: 0.95 },
+    {
+      regex: /\b(?<value>[A-Z][A-Za-z0-9&.' -]{2,80}?(?:IUL|UL Accumulator|Indexed Universal Life)(?:\s+(?:I{1,3}|IV|V))?)\b/i,
+      normalize: normalizeProductIdentity,
+      confidence: 0.7,
+    },
+  ]) || findFilenameProductIdentity(pdf.fileName, carrier.value);
+
+  if (!product) {
+    fail(422, 'profile_identity_not_found', 'Could not detect the illustration product from the uploaded PDF.');
+  }
+
+  const productType = detectProductTypeIdentity(pdf, productTypeHint);
+  if (!productType) {
+    fail(422, 'profile_identity_not_found', 'Could not detect whether the illustration is IUL or Term Life.');
+  }
+
+  return {
+    carrier: carrier.value,
+    productName: product.value,
+    productType: productType.value,
+    confidence: Math.min(carrier.evidence.confidence, product.evidence.confidence, productType.evidence.confidence),
+    evidence: {
+      carrier: carrier.evidence,
+      productName: product.evidence,
+      productType: productType.evidence,
+    },
+  };
 }
 
 function cleanProfileStatus(value?: string): IllustrationProfileStatus {
@@ -108,7 +493,7 @@ function cleanOptionalProfileStatus(value?: string | null) {
 }
 
 function cleanTrainingStatus(value?: string): IllustrationTrainingExampleStatus {
-  if (value === 'uploaded' || value === 'training' || value === 'reviewed' || value === 'rejected' || value === 'archived') return value;
+  if (value === 'uploaded' || value === 'training' || value === 'needs_review' || value === 'reviewed' || value === 'rejected' || value === 'archived') return value;
   fail(400, 'invalid_training_status', 'Illustration training example status is invalid.');
 }
 
@@ -156,6 +541,10 @@ function mapProfileRow(row: ProfileRow): IllustrationProfileSummary {
     productType: row.productType,
     status: row.status,
     notes: row.notes || '',
+    carrierLogoUrl: row.carrierLogoUrl ?? null,
+    carrierLogoMimeType: row.carrierLogoMimeType ?? null,
+    carrierLogoFileName: row.carrierLogoFileName ?? null,
+    carrierLogoFileSizeBytes: row.carrierLogoFileSizeBytes == null ? null : Number(row.carrierLogoFileSizeBytes),
     activeVersionId: row.activeVersionId ?? null,
     activeVersionNumber: row.activeVersionNumber == null ? null : Number(row.activeVersionNumber),
     createdAt: timestamp(row.createdAt),
@@ -303,6 +692,10 @@ export async function listIllustrationProfiles(search = ''): Promise<Illustratio
       p.product_type as "productType",
       p.status,
       p.notes,
+      logo.logo_data_url as "carrierLogoUrl",
+      logo.logo_mime_type as "carrierLogoMimeType",
+      logo.logo_file_name as "carrierLogoFileName",
+      logo.logo_file_size_bytes as "carrierLogoFileSizeBytes",
       av.id as "activeVersionId",
       av.version_number as "activeVersionNumber",
       p.created_at as "createdAt",
@@ -316,6 +709,12 @@ export async function listIllustrationProfiles(search = ''): Promise<Illustratio
       order by published_at desc nulls last, version_number desc
       limit 1
     ) av on true
+    left join lateral (
+      select logo_data_url, logo_mime_type, logo_file_name, logo_file_size_bytes
+      from illustration_carrier_assets
+      where lower(carrier) = lower(p.carrier)
+      limit 1
+    ) logo on true
     where (${search.trim()} = '' or lower(p.carrier) like ${pattern} or lower(p.product_name) like ${pattern})
     order by p.updated_at desc
     limit 200
@@ -333,6 +732,10 @@ export async function getIllustrationProfile(id: string): Promise<IllustrationPr
       p.product_type as "productType",
       p.status,
       p.notes,
+      logo.logo_data_url as "carrierLogoUrl",
+      logo.logo_mime_type as "carrierLogoMimeType",
+      logo.logo_file_name as "carrierLogoFileName",
+      logo.logo_file_size_bytes as "carrierLogoFileSizeBytes",
       av.id as "activeVersionId",
       av.version_number as "activeVersionNumber",
       p.created_at as "createdAt",
@@ -346,12 +749,18 @@ export async function getIllustrationProfile(id: string): Promise<IllustrationPr
       order by published_at desc nulls last, version_number desc
       limit 1
     ) av on true
+    left join lateral (
+      select logo_data_url, logo_mime_type, logo_file_name, logo_file_size_bytes
+      from illustration_carrier_assets
+      where lower(carrier) = lower(p.carrier)
+      limit 1
+    ) logo on true
     where p.id = ${id}
     limit 1
   `);
   if (!profile) fail(404, 'illustration_profile_not_found', 'Illustration profile not found.');
 
-  const [versions, fingerprints, fieldMappings, projectionMappings, examples] = await Promise.all([
+  const [versions, fingerprints, fieldMappings, projectionMappings, examples, runs] = await Promise.all([
     sql<VersionRow[]>`
       select
         id,
@@ -439,6 +848,31 @@ export async function getIllustrationProfile(id: string): Promise<IllustrationPr
       order by created_at desc
       limit 100
     `,
+    sql`
+      select
+        id,
+        profile_id as "profileId",
+        profile_version_id as "profileVersionId",
+        training_example_id as "trainingExampleId",
+        run_type as "runType",
+        status,
+        model_provider as "modelProvider",
+        model_name as "modelName",
+        input_sha256 as "inputSha256",
+        match_score as "matchScore",
+        extraction_confidence as "extractionConfidence",
+        normalized_extract as "normalizedExtract",
+        evidence_snippets as "evidenceSnippets",
+        error_code as "errorCode",
+        error_message as "errorMessage",
+        metadata,
+        created_at as "createdAt",
+        updated_at as "updatedAt"
+      from illustration_extraction_runs
+      where profile_id = ${id}
+      order by created_at desc
+      limit 100
+    `,
   ]);
 
   const mappedVersions = versions.map(mapVersionRow);
@@ -451,6 +885,7 @@ export async function getIllustrationProfile(id: string): Promise<IllustrationPr
     fieldMappings: fieldMappings.map(mapFieldMappingRow),
     projectionMappings: projectionMappings.map(mapProjectionMappingRow),
     examples: examples.map(mapTrainingExampleRow),
+    runs: runs.map(mapExtractionRunRow),
   };
 }
 
@@ -488,6 +923,63 @@ export async function createIllustrationProfile(actor: Actor, input: CreateIllus
 
   await audit(actor, 'illustration_profile.create', 'illustration_profile', row.id, { carrier, productName, productType });
   return await getIllustrationProfile(row.id);
+}
+
+export async function upsertIllustrationProfileFromPdf(
+  actor: Actor,
+  input: {
+    pdf: PdfExtractionResult;
+    productType?: IllustrationProductType | null;
+    notes?: string;
+  },
+): Promise<UpsertIllustrationProfileFromPdfResult> {
+  const identity = extractIllustrationProfileIdentityFromPdf(input.pdf, input.productType ?? null);
+  const notes = cleanText(input.notes) || `Created from uploaded PDF ${input.pdf.fileName || input.pdf.fileSha256}.`;
+  const sql = db();
+  const existing = await one<{ id: string }>(sql`
+    select id
+    from illustration_profiles
+    where lower(carrier) = ${identity.carrier.toLowerCase()}
+      and lower(product_name) = ${identity.productName.toLowerCase()}
+      and product_type = ${identity.productType}
+    limit 1
+  `);
+
+  let created = false;
+  const profile = existing
+    ? await getIllustrationProfile(existing.id)
+    : await createIllustrationProfile(actor, {
+        carrier: identity.carrier,
+        productName: identity.productName,
+        productType: identity.productType,
+        notes,
+      });
+  created = !existing;
+
+  await audit(actor, 'illustration_profile.upsert_from_pdf', 'illustration_profile', profile.id, {
+    created,
+    carrier: identity.carrier,
+    productName: identity.productName,
+    productType: identity.productType,
+    confidence: identity.confidence,
+    fileName: input.pdf.fileName,
+    fileSha256: input.pdf.fileSha256,
+    pageCount: input.pdf.pageCount,
+    extractedPageCount: input.pdf.pages.length,
+  });
+
+  return {
+    profile,
+    identity,
+    created,
+    file: {
+      fileName: input.pdf.fileName || 'illustration.pdf',
+      fileSha256: input.pdf.fileSha256,
+      fileSizeBytes: input.pdf.fileSizeBytes,
+      pageCount: input.pdf.pageCount,
+      extractedPageCount: input.pdf.pages.length,
+    },
+  };
 }
 
 export async function updateIllustrationProfile(actor: Actor, id: string, input: UpdateIllustrationProfileInput): Promise<IllustrationProfileDetail> {
@@ -536,6 +1028,100 @@ export async function updateIllustrationProfile(actor: Actor, id: string, input:
   `;
   await audit(actor, 'illustration_profile.update', 'illustration_profile', id, input as Record<string, unknown>);
   return await getIllustrationProfile(id);
+}
+
+function cleanCarrierLogoInput(input: UpdateIllustrationCarrierLogoInput) {
+  const fileName = cleanText(input.fileName) || 'carrier-logo';
+  const mimeType = cleanText(input.mimeType);
+  const fileSizeBytes = Number(input.fileSizeBytes);
+  const dataUrl = cleanText(input.dataUrl);
+  if (mimeType !== 'image/png' && mimeType !== 'image/jpeg' && mimeType !== 'image/webp') {
+    fail(400, 'invalid_logo_mime_type', 'Carrier logo must be PNG, JPEG, or WebP.');
+  }
+  if (!Number.isFinite(fileSizeBytes) || fileSizeBytes < 1 || fileSizeBytes > MAX_CARRIER_LOGO_FILE_BYTES) {
+    fail(400, 'invalid_logo_file_size', 'Carrier logo file size is invalid or too large.');
+  }
+  if (!dataUrl.startsWith(`data:${mimeType};base64,`) || dataUrl.length > 1048576) {
+    fail(400, 'invalid_logo_data', 'Carrier logo data URL is invalid.');
+  }
+  return { fileName, mimeType, fileSizeBytes, dataUrl };
+}
+
+export async function updateIllustrationCarrierLogo(
+  actor: Actor,
+  profileId: string,
+  input: UpdateIllustrationCarrierLogoInput,
+): Promise<IllustrationProfileDetail> {
+  const clean = cleanCarrierLogoInput(input);
+  const sql = db();
+  const row = await one<{ id: string }>(sql`
+    with current_profile as (
+      select id, carrier
+      from illustration_profiles
+      where id = ${profileId}
+      limit 1
+    ),
+    updated_asset as (
+      update illustration_carrier_assets asset
+      set
+        carrier = current_profile.carrier,
+        logo_data_url = ${clean.dataUrl},
+        logo_mime_type = ${clean.mimeType},
+        logo_file_name = ${clean.fileName},
+        logo_file_size_bytes = ${clean.fileSizeBytes},
+        updated_by = ${actor.id},
+        updated_at = now()
+      from current_profile
+      where lower(asset.carrier) = lower(current_profile.carrier)
+      returning asset.id
+    )
+    insert into illustration_carrier_assets (
+      carrier,
+      logo_data_url,
+      logo_mime_type,
+      logo_file_name,
+      logo_file_size_bytes,
+      updated_by
+    )
+    select
+      current_profile.carrier,
+      ${clean.dataUrl},
+      ${clean.mimeType},
+      ${clean.fileName},
+      ${clean.fileSizeBytes},
+      ${actor.id}
+    from current_profile
+    where not exists (select 1 from updated_asset)
+    returning id
+  `);
+
+  const profile = await getIllustrationProfile(profileId);
+  if (!profile) fail(404, 'illustration_profile_not_found', 'Illustration profile not found.');
+  await audit(actor, 'illustration_carrier_logo.update', 'illustration_profile', profileId, {
+    carrier: profile.carrier,
+    fileName: clean.fileName,
+    mimeType: clean.mimeType,
+    fileSizeBytes: clean.fileSizeBytes,
+    assetCreated: Boolean(row),
+  });
+  return profile;
+}
+
+export async function clearIllustrationCarrierLogo(actor: Actor, profileId: string): Promise<IllustrationProfileDetail> {
+  const sql = db();
+  const deleted = await sql<{ id: string }[]>`
+    delete from illustration_carrier_assets asset
+    using illustration_profiles profile
+    where profile.id = ${profileId}
+      and lower(asset.carrier) = lower(profile.carrier)
+    returning asset.id
+  `;
+  const profile = await getIllustrationProfile(profileId);
+  await audit(actor, 'illustration_carrier_logo.clear', 'illustration_profile', profileId, {
+    carrier: profile.carrier,
+    deleted: deleted.length,
+  });
+  return profile;
 }
 
 export async function ensureDraftIllustrationProfileVersion(actor: Actor, profileId: string): Promise<IllustrationProfileVersionSummary> {
@@ -633,7 +1219,7 @@ export async function validatePublishableIllustrationProfileVersion(profileId: s
     listFingerprintsForVersion(profileVersionId),
     listFieldMappingsForVersion(profileVersionId),
   ]);
-  const requiredPaths = requiredIllustrationFieldPaths(profile.productType);
+  const requiredPaths = publishRequiredFieldPaths(profile.productType);
   const missingFieldPaths = requiredPaths.filter(path =>
     !fieldMappings.some(mapping => mapping.fieldPath === path && mapping.required && mapping.sourceStrategy !== 'manual'),
   );
@@ -670,6 +1256,10 @@ export async function listPublishedIllustrationProfileVersions(productType?: Ill
       p.product_type as "productType",
       p.status,
       p.notes,
+      logo.logo_data_url as "carrierLogoUrl",
+      logo.logo_mime_type as "carrierLogoMimeType",
+      logo.logo_file_name as "carrierLogoFileName",
+      logo.logo_file_size_bytes as "carrierLogoFileSizeBytes",
       v.id as "profileVersionId",
       v.version_number as "versionNumber",
       v.status as "versionStatus",
@@ -683,6 +1273,12 @@ export async function listPublishedIllustrationProfileVersions(productType?: Ill
       v.updated_at as "versionUpdatedAt"
     from illustration_profiles p
     join illustration_profile_versions v on v.profile_id = p.id
+    left join lateral (
+      select logo_data_url, logo_mime_type, logo_file_name, logo_file_size_bytes
+      from illustration_carrier_assets
+      where lower(carrier) = lower(p.carrier)
+      limit 1
+    ) logo on true
     where p.status = 'active'
       and v.status = 'published'
       and (${cleanType || ''} = '' or p.product_type = ${cleanType})
@@ -725,6 +1321,10 @@ export async function getPublishedIllustrationProfileVersion(profileId: string):
       p.product_type as "productType",
       p.status,
       p.notes,
+      logo.logo_data_url as "carrierLogoUrl",
+      logo.logo_mime_type as "carrierLogoMimeType",
+      logo.logo_file_name as "carrierLogoFileName",
+      logo.logo_file_size_bytes as "carrierLogoFileSizeBytes",
       v.id as "profileVersionId",
       v.version_number as "versionNumber",
       v.status as "versionStatus",
@@ -738,6 +1338,12 @@ export async function getPublishedIllustrationProfileVersion(profileId: string):
       v.updated_at as "versionUpdatedAt"
     from illustration_profiles p
     join illustration_profile_versions v on v.profile_id = p.id
+    left join lateral (
+      select logo_data_url, logo_mime_type, logo_file_name, logo_file_size_bytes
+      from illustration_carrier_assets
+      where lower(carrier) = lower(p.carrier)
+      limit 1
+    ) logo on true
     where p.id = ${profileId}
       and p.status = 'active'
       and v.status = 'published'
@@ -876,8 +1482,8 @@ export async function storeIllustrationTrainingExample(
       ${input.mimeType},
       ${input.fileSizeBytes},
       ${status},
-      ${jsonPayload(input.correctedExtract)},
-      ${jsonPayload(input.evidenceSnippets)},
+      (${jsonPayload(input.correctedExtract)}::text)::jsonb,
+      (${jsonPayload(input.evidenceSnippets)}::text)::jsonb,
       ${cleanText(input.notes)},
       ${actor.id}
     )
@@ -966,8 +1572,8 @@ export async function updateIllustrationTrainingExample(
     set
       profile_version_id = coalesce(${profileVersionId || null}, profile_version_id),
       status = ${status},
-      corrected_extract = coalesce(${jsonPayloadOrNull(input.correctedExtract)}, corrected_extract),
-      evidence_snippets = coalesce(${jsonPayloadOrNull(input.evidenceSnippets)}, evidence_snippets),
+      corrected_extract = coalesce((${jsonPayloadOrNull(input.correctedExtract)}::text)::jsonb, corrected_extract),
+      evidence_snippets = coalesce((${jsonPayloadOrNull(input.evidenceSnippets)}::text)::jsonb, evidence_snippets),
       notes = coalesce(${notes}, notes),
       updated_at = now()
     where id = ${exampleId}
@@ -1000,10 +1606,20 @@ export async function replaceIllustrationProfileVersionMappings(
   actor: Actor,
   profileId: string,
   profileVersionId: string,
-  input: Pick<IllustrationTrainingCorrectionInput, 'fingerprints' | 'fieldMappings' | 'projectionMappings'>,
+  input: Pick<IllustrationTrainingCorrectionInput, 'fingerprints' | 'fieldMappings' | 'projectionMappings' | 'correctedExtract' | 'evidenceSnippets'>,
 ) {
   await assertProfileVersionBelongsToProfile(profileId, profileVersionId);
   const sql = db();
+  const profile = await one<{ productType: IllustrationProductType }>(sql`
+    select product_type as "productType"
+    from illustration_profiles
+    where id = ${profileId}
+    limit 1
+  `);
+  if (!profile) fail(404, 'illustration_profile_not_found', 'Illustration profile not found.');
+  const fieldMappings = input.fieldMappings
+    ? completeReviewedFieldMappings(profile.productType, input)
+    : undefined;
 
   if (input.fingerprints) {
     await sql`delete from illustration_profile_fingerprints where profile_id = ${profileId} and profile_version_id = ${profileVersionId}`;
@@ -1036,9 +1652,9 @@ export async function replaceIllustrationProfileVersionMappings(
     }
   }
 
-  if (input.fieldMappings) {
+  if (fieldMappings) {
     await sql`delete from illustration_profile_field_mappings where profile_id = ${profileId} and profile_version_id = ${profileVersionId}`;
-    for (const mapping of input.fieldMappings) {
+    for (const mapping of fieldMappings) {
       await sql`
         insert into illustration_profile_field_mappings (
           profile_id,
@@ -1055,8 +1671,8 @@ export async function replaceIllustrationProfileVersionMappings(
           ${profileVersionId},
           ${mapping.fieldPath},
           ${mapping.sourceStrategy},
-          ${jsonPayload(mapping.sourceSelector)},
-          ${jsonPayload(mapping.transformRules)},
+          (${jsonPayload(mapping.sourceSelector)}::text)::jsonb,
+          (${jsonPayload(mapping.transformRules)}::text)::jsonb,
           ${requiredBoolean(mapping.required)},
           ${mapping.minConfidence ?? 0.8},
           ${mapping.notes || ''}
@@ -1086,10 +1702,10 @@ export async function replaceIllustrationProfileVersionMappings(
           ${profileVersionId},
           ${mapping.projectionKey},
           ${mapping.sourceStrategy},
-          ${jsonPayload(mapping.rowSelector)},
-          ${jsonPayload(mapping.columnMappings)},
-          ${jsonPayload(mapping.valueMappings)},
-          ${jsonPayload(mapping.transformRules)},
+          (${jsonPayload(mapping.rowSelector)}::text)::jsonb,
+          (${jsonPayload(mapping.columnMappings)}::text)::jsonb,
+          (${jsonPayload(mapping.valueMappings)}::text)::jsonb,
+          (${jsonPayload(mapping.transformRules)}::text)::jsonb,
           ${requiredBoolean(mapping.required)},
           ${mapping.minConfidence ?? 0.8},
           ${mapping.notes || ''}
@@ -1112,7 +1728,7 @@ export async function replaceIllustrationProfileVersionMappings(
   await audit(actor, 'illustration_profile_mappings.replace', 'illustration_profile', profileId, {
     profileVersionId,
     fingerprints: input.fingerprints?.length,
-    fieldMappings: input.fieldMappings?.length,
+    fieldMappings: fieldMappings?.length,
     projectionMappings: input.projectionMappings?.length,
   });
 }
@@ -1125,14 +1741,14 @@ export async function applyIllustrationTrainingCorrection(
 ) {
   const current = await getTrainingExampleForProfile(profileId, exampleId);
   const profileVersionId = input.profileVersionId ?? current.profileVersionId ?? (await ensureDraftIllustrationProfileVersion(actor, profileId)).id;
+  if (input.fingerprints || input.fieldMappings || input.projectionMappings) {
+    await replaceIllustrationProfileVersionMappings(actor, profileId, profileVersionId, input);
+  }
   const example = await updateIllustrationTrainingExample(actor, profileId, exampleId, {
     ...input,
     profileVersionId,
     status: input.status || 'reviewed',
   });
-  if (input.fingerprints || input.fieldMappings || input.projectionMappings) {
-    await replaceIllustrationProfileVersionMappings(actor, profileId, profileVersionId, input);
-  }
   return {
     example,
     profile: await getIllustrationProfile(profileId),
@@ -1177,11 +1793,11 @@ export async function recordIllustrationExtractionRun(input: StoreIllustrationEx
       ${inputSha256},
       ${matchScore},
       ${extractionConfidence},
-      ${jsonPayload(input.normalizedExtract)},
-      ${jsonPayload(input.evidenceSnippets)},
+      (${jsonPayload(input.normalizedExtract)}::text)::jsonb,
+      (${jsonPayload(input.evidenceSnippets)}::text)::jsonb,
       ${input.errorCode || null},
       ${input.errorMessage || null},
-      ${jsonPayload(input.metadata)},
+      (${jsonPayload(input.metadata)}::text)::jsonb,
       ${input.createdBy || null}
     )
     returning
@@ -1228,11 +1844,11 @@ export async function updateIllustrationExtractionRun(
       model_name = coalesce(${input.modelName ?? null}, model_name),
       match_score = coalesce(${matchScore}, match_score),
       extraction_confidence = coalesce(${extractionConfidence}, extraction_confidence),
-      normalized_extract = coalesce(${jsonPayloadOrNull(input.normalizedExtract)}, normalized_extract),
-      evidence_snippets = coalesce(${jsonPayloadOrNull(input.evidenceSnippets)}, evidence_snippets),
+      normalized_extract = coalesce((${jsonPayloadOrNull(input.normalizedExtract)}::text)::jsonb, normalized_extract),
+      evidence_snippets = coalesce((${jsonPayloadOrNull(input.evidenceSnippets)}::text)::jsonb, evidence_snippets),
       error_code = coalesce(${input.errorCode ?? null}, error_code),
       error_message = coalesce(${input.errorMessage ?? null}, error_message),
-      metadata = coalesce(${jsonPayloadOrNull(input.metadata)}, metadata),
+      metadata = coalesce((${jsonPayloadOrNull(input.metadata)}::text)::jsonb, metadata),
       updated_at = now()
     where id = ${id}
     returning

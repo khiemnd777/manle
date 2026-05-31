@@ -118,6 +118,7 @@ export async function extractPdfTextLayout(
   const bytes = await inputToBytes(input);
   if (bytes.byteLength < 1) fail(400, 'invalid_pdf', 'PDF file is empty.');
 
+  const fileSizeBytes = bytes.byteLength;
   const fileSha256 = await sha256Hex(bytes);
   const maxPages = cleanMaxPages(options.maxPages);
   const pdfjs = await loadPdfJs();
@@ -158,7 +159,7 @@ export async function extractPdfTextLayout(
       fileSha256,
       fileName: options.fileName,
       mimeType,
-      fileSizeBytes: bytes.byteLength,
+      fileSizeBytes,
       pageCount,
       text: pages.map(page => page.text).join('\n'),
       pages,

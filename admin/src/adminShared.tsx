@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { ApiError } from './api/client';
 import type { PriceTier } from './api/client';
@@ -23,6 +23,31 @@ export type Toast = {
 export type Notify = (kind: ToastKind, title: string, message?: string) => void;
 
 export const ToastContext = createContext<Notify>(() => undefined);
+
+export type AppDialogVariant = 'info' | 'warning' | 'danger';
+export type AppDialogOptions = {
+  title: string;
+  message?: ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  variant?: AppDialogVariant;
+};
+export type AppDialogActions = {
+  alert: (options: AppDialogOptions) => Promise<void>;
+  confirm: (options: AppDialogOptions) => Promise<boolean>;
+};
+
+type AppDialogMode = 'alert' | 'confirm';
+type AppDialogRequest = AppDialogOptions & {
+  id: number;
+  mode: AppDialogMode;
+  resolve: (value: boolean) => void;
+};
+
+export const AppDialogContext = createContext<AppDialogActions>({
+  alert: async () => undefined,
+  confirm: async () => false,
+});
 
 const toastIcons: Record<ToastKind, IconName> = {
   success: 'check',
@@ -153,6 +178,14 @@ export function useNotify() {
   return useContext(ToastContext);
 }
 
+export function useAppDialog() {
+  return useContext(AppDialogContext);
+}
+
+export function useConfirmDialog() {
+  return useContext(AppDialogContext).confirm;
+}
+
 export function useFeedbackState(kind: ToastKind, title = 'Action failed') {
   const notify = useNotify();
   const [value, setValueState] = useState('');
@@ -243,6 +276,164 @@ export function Dialog({
           <ActionButton className="ghost-button" type="button" icon="x" onClick={onClose}>Close</ActionButton>
         </header>
         {children}
+      </section>
+    </div>
+  );
+}
+
+export function AppDialogProvider({ children }: { children: ReactNode }) {
+  const [activeRequest, setActiveRequest] = useState<AppDialogRequest | null>(null);
+  const activeRequestRef = useRef<AppDialogRequest | null>(null);
+  const queuedRequests = useRef<AppDialogRequest[]>([]);
+
+  useEffect(() => {
+    activeRequestRef.current = activeRequest;
+  }, [activeRequest]);
+
+  const openDialog = useCallback((mode: AppDialogMode, options: AppDialogOptions) => {
+    return new Promise<boolean>(resolve => {
+      const request: AppDialogRequest = {
+        ...options,
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        mode,
+        resolve,
+      };
+
+      setActiveRequest(current => {
+        if (current) {
+          queuedRequests.current.push(request);
+          return current;
+        }
+        return request;
+      });
+    });
+  }, []);
+
+  const resolveDialog = useCallback((value: boolean) => {
+    const request = activeRequestRef.current;
+    if (!request) return;
+    request.resolve(value);
+    const nextRequest = queuedRequests.current.shift() || null;
+    activeRequestRef.current = nextRequest;
+    setActiveRequest(nextRequest);
+  }, []);
+
+  const actions = useMemo<AppDialogActions>(() => ({
+    alert: async (options) => {
+      await openDialog('alert', options);
+    },
+    confirm: (options) => openDialog('confirm', options),
+  }), [openDialog]);
+
+  return (
+    <AppDialogContext.Provider value={actions}>
+      {children}
+      <AppDialogFrame request={activeRequest} onResolve={resolveDialog} />
+    </AppDialogContext.Provider>
+  );
+}
+
+function AppDialogFrame({
+  request,
+  onResolve,
+}: {
+  request: AppDialogRequest | null;
+  onResolve: (value: boolean) => void;
+}) {
+  const panelRef = useRef<HTMLElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!request) return undefined;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const timer = window.setTimeout(() => {
+      const panel = panelRef.current;
+      const target = panel?.querySelector<HTMLElement>('[data-dialog-autofocus]')
+        || panel?.querySelector<HTMLElement>('button');
+      target?.focus();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+      previousFocusRef.current?.focus();
+      previousFocusRef.current = null;
+    };
+  }, [request?.id]);
+
+  useEffect(() => {
+    if (!request) return undefined;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onResolve(false);
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(panelRef.current?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') || [])
+        .filter(element => !element.hasAttribute('disabled'));
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onResolve, request]);
+
+  if (!request) return null;
+
+  const variant = request.variant || 'info';
+  const titleId = `app-dialog-title-${request.id}`;
+  const messageId = request.message ? `app-dialog-message-${request.id}` : undefined;
+  const iconName: IconName = variant === 'info' ? 'info' : 'alert';
+  const confirmLabel = request.confirmLabel || (request.mode === 'confirm' ? 'Confirm' : 'OK');
+
+  return (
+    <div className="dialog-overlay app-dialog-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onResolve(false); }}>
+      <section
+        ref={panelRef}
+        className={`dialog-panel app-dialog-panel app-dialog-${variant}`}
+        role={variant === 'info' && request.mode === 'confirm' ? 'dialog' : 'alertdialog'}
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={messageId}
+        tabIndex={-1}
+      >
+        <div className="app-dialog-body">
+          <span className="app-dialog-icon" aria-hidden="true">
+            <Icon name={iconName} />
+          </span>
+          <div className="app-dialog-copy">
+            <h2 id={titleId}>{request.title}</h2>
+            {request.message && <div id={messageId} className="app-dialog-message">{request.message}</div>}
+          </div>
+        </div>
+        <div className="dialog-actions app-dialog-actions">
+          {request.mode === 'confirm' && (
+            <ActionButton type="button" className="ghost-button" onClick={() => onResolve(false)} data-dialog-autofocus>
+              {request.cancelLabel || 'Cancel'}
+            </ActionButton>
+          )}
+          <ActionButton
+            type="button"
+            className={variant === 'danger' ? 'danger-button' : ''}
+            onClick={() => onResolve(true)}
+            data-dialog-autofocus={request.mode === 'alert' ? true : undefined}
+          >
+            {confirmLabel}
+          </ActionButton>
+        </div>
       </section>
     </div>
   );

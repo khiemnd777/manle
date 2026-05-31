@@ -1,6 +1,7 @@
 import { $ } from './core';
 import { authorizeFeatureUse, canUseEntitlement } from './account';
 import { refreshCustomDropdowns } from './customDropdown';
+import { showErrorDialog } from './dialog';
 
 let scheduleSaveCallback = () => {};
 export function setStyleSaveScheduler(fn: () => void) {
@@ -107,7 +108,7 @@ export function bindStyleEditor() {
       })
       .catch(error => {
         editor.classList.remove('open');
-        alert((error as Error).message || error);
+        void showErrorDialog(error, 'Không thể mở Style Editor');
       });
   });
 

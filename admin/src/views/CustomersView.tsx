@@ -14,6 +14,7 @@ import {
   nextSortState,
   sortedRows,
   tierOptions,
+  useConfirmDialog,
   useFeedbackState,
 } from '../adminShared';
 import type { SortState, SortValue } from '../adminShared';
@@ -34,6 +35,7 @@ export default function CustomersView({ data, reload }: { data: AdminData; reloa
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [entitlements, setEntitlements] = useState<Record<string, unknown> | null>(null);
+  const confirmDialog = useConfirmDialog();
   const [message, setMessage] = useFeedbackState('success');
   const [error, setError] = useFeedbackState('error');
   const [sort, setSort] = useState<SortState<CustomerSortKey> | null>(null);
@@ -102,7 +104,12 @@ export default function CustomersView({ data, reload }: { data: AdminData; reloa
   }
 
   async function deleteCustomer(customer: Customer) {
-    if (!window.confirm(`Delete customer ${customer.email}? This will remove related sessions, subscriptions, and export usage. This cannot be undone.`)) return;
+    if (!(await confirmDialog({
+      title: 'Delete customer?',
+      message: `Delete ${customer.email}? This removes related sessions, subscriptions, and export usage. This cannot be undone.`,
+      confirmLabel: 'Delete customer',
+      variant: 'danger',
+    }))) return;
     setError('');
     setMessage('');
     try {

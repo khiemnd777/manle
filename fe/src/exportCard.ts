@@ -1,5 +1,6 @@
 import { $, state } from './core';
 import { authorizeCardExport, type ExportAuthorization } from './account';
+import { showAppDialog, showErrorDialog } from './dialog';
 import { resetHeaderCustomizations, syncHeaderEntitlementState } from './headerEditor';
 import { sanitizeLivingBenefitEditorForExport } from './livingBenefitColumns';
 import { repairAllLivingBenefitFormats } from './livingBenefitFormat';
@@ -78,7 +79,7 @@ export async function exportCardImage(format) {
     card.classList.remove('exporting');
     btn.textContent = origLabel;
     btn.disabled = false;
-    alert((err as Error).message || err);
+    void showErrorDialog(err, 'Không thể export file');
     return;
   }
 
@@ -190,7 +191,14 @@ export async function exportCardImage(format) {
       const filename = `manle_iul_${safe}.${ext}`;
 
       canvas.toBlob((blob) => {
-        if (!blob) { alert('Tạo file thất bại. Vui lòng thử lại.'); return; }
+        if (!blob) {
+          void showAppDialog({
+            title: 'Tạo file thất bại',
+            message: 'Vui lòng thử lại.',
+            variant: 'danger',
+          });
+          return;
+        }
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -203,7 +211,7 @@ export async function exportCardImage(format) {
     }
   } catch (err) {
     console.error('Export failed:', err);
-    alert('Lỗi khi tạo file: ' + (err.message || err));
+    void showErrorDialog(err, 'Lỗi khi tạo file');
   } finally {
     // Restore original inline styles
     allCardEls.forEach((el, i) => {

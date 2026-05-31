@@ -472,7 +472,7 @@ async function upsertPaddleSubscription(data: Record<string, any>) {
         ${isoOrNull(period.ends_at || period.endsAt)},
         ${cancelAtPeriodEnd},
         false,
-        ${JSON.stringify(data)}
+        (${JSON.stringify(data)}::text)::jsonb
       )
       on conflict (paddle_subscription_id) do update set
         user_id = excluded.user_id,
@@ -564,7 +564,7 @@ export async function handlePaddleWebhook(rawBody: string, signatureHeader: stri
   const sql = db();
   const inserted = await one<{ paddleEventId: string }>(sql`
     insert into paddle_events (paddle_event_id, event_type, payload)
-    values (${id}, ${type}, ${rawBody})
+    values (${id}, ${type}, (${rawBody}::text)::jsonb)
     on conflict (paddle_event_id) do nothing
     returning paddle_event_id as "paddleEventId"
   `);

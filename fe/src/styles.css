@@ -1427,6 +1427,136 @@
     background: #ffecec;
     color: #a13b3b;
   }
+  body.app-dialog-open {
+    overflow: hidden;
+  }
+  .app-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: grid;
+    place-items: center;
+    padding: 22px;
+    background: rgba(20, 16, 58, .62);
+  }
+  .app-dialog-panel {
+    width: min(500px, 100%);
+    border: 1px solid rgba(217, 208, 190, .84);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 30px 90px rgba(20, 16, 58, .32), 0 1px 0 rgba(255, 255, 255, .82) inset;
+    overflow: hidden;
+  }
+  .app-dialog-body {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 14px;
+    padding: 24px 24px 8px;
+  }
+  .app-dialog-icon {
+    width: 42px;
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #edf7f5;
+    color: var(--teal);
+    font-weight: 900;
+    font-size: 20px;
+  }
+  .app-dialog-warning .app-dialog-icon {
+    background: #fff6e3;
+    color: #9b6500;
+  }
+  .app-dialog-danger .app-dialog-icon {
+    background: #ffecec;
+    color: #a13b3b;
+  }
+  .app-dialog-copy {
+    min-width: 0;
+    display: grid;
+    gap: 8px;
+  }
+  .app-dialog-copy h2 {
+    margin: 0;
+    color: var(--navy);
+    font-size: 21px;
+    line-height: 1.2;
+  }
+  .app-dialog-copy p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+    white-space: pre-line;
+  }
+  .app-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 24px 22px;
+  }
+  .app-dialog-actions button {
+    min-height: 40px;
+    border-radius: 8px;
+    padding: 9px 14px;
+    font: inherit;
+    font-weight: 900;
+    cursor: pointer;
+    transition: border-color .15s, background .15s, color .15s, transform .05s, box-shadow .15s;
+  }
+  .app-dialog-actions button:active {
+    transform: translateY(1px);
+  }
+  .app-dialog-actions button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(45, 96, 82, .18);
+  }
+  .app-dialog-secondary {
+    border: 1px solid #e6dfd2;
+    background: #fbfaf6;
+    color: var(--navy);
+  }
+  .app-dialog-secondary:hover {
+    border-color: #d6cbb8;
+    background: #ffffff;
+  }
+  .app-dialog-primary {
+    border: 1px solid var(--navy);
+    background: var(--navy);
+    color: #ffffff;
+  }
+  .app-dialog-primary:hover {
+    border-color: var(--teal);
+    background: var(--teal);
+  }
+  .app-dialog-danger .app-dialog-primary {
+    border-color: #a13b3b;
+    background: #a13b3b;
+  }
+  .app-dialog-danger .app-dialog-primary:hover {
+    border-color: #7f2c2c;
+    background: #7f2c2c;
+  }
+  @media (max-width: 520px) {
+    .app-dialog {
+      align-items: end;
+      padding: 14px;
+    }
+    .app-dialog-body {
+      grid-template-columns: 1fr;
+      padding: 20px 18px 6px;
+    }
+    .app-dialog-actions {
+      flex-direction: column-reverse;
+      padding: 14px 18px 18px;
+    }
+    .app-dialog-actions button {
+      width: 100%;
+    }
+  }
   #card-generator {
     scroll-margin-top: 0;
   }

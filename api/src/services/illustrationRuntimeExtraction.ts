@@ -613,6 +613,9 @@ export async function extractRuntimeIllustration(input: RuntimeInput): Promise<I
     status: 'succeeded',
     extract,
     match: matchResult.match,
+    assets: {
+      carrierLogoUrl: published.profile.carrierLogoUrl ?? null,
+    },
     runId: run.id,
   };
 }

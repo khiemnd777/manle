@@ -1,15 +1,18 @@
 import { useMemo, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { api } from '../api/client';
 import type {
   IllustrationEvidenceSnippet,
+  IllustrationExtractionRunSummary,
   IllustrationFieldPath,
   IllustrationProductType,
   IllustrationProfileDetail,
   IllustrationProfileFieldMapping,
   IllustrationProfileFingerprint,
+  IllustrationProfilePdfUpsertResponse,
   IllustrationProfileProjectionMapping,
   IllustrationProfileSummary,
+  IllustrationTrainingExampleSummary,
   IllustrationTrainingProposal,
   IllustrationTrainingResponse,
 } from '../api/client';
@@ -26,6 +29,7 @@ import {
   nextSortState,
   sortedRows,
   timestamp,
+  useConfirmDialog,
   useFeedbackState,
 } from '../adminShared';
 import type { SortState, SortValue } from '../adminShared';
@@ -34,7 +38,7 @@ import { illustrationProductTypeOptions } from './options';
 type LoadAll = (customerSearch?: string, systemUserSearch?: string, illustrationProfileSearch?: string) => Promise<void>;
 type IllustrationProfileSortKey = 'carrier' | 'product' | 'productType' | 'status' | 'activeVersion' | 'updatedAt';
 type ReviewMode = 'train' | 'test';
-type SubmitAction = ReviewMode | 'saveReview' | 'publish' | null;
+type SubmitAction = ReviewMode | 'saveReview' | 'publish' | 'upsertProfile' | 'logo' | null;
 type FingerprintType = IllustrationProfileFingerprint['fingerprintType'];
 type FingerprintStrategy = IllustrationProfileFingerprint['matchStrategy'];
 type FieldSourceStrategy = IllustrationProfileFieldMapping['sourceStrategy'];
@@ -126,6 +130,10 @@ const fingerprintTypeOptions: FingerprintType[] = ['carrier', 'product', 'form',
 const fingerprintStrategyOptions: FingerprintStrategy[] = ['contains', 'equals', 'regex', 'normalized_contains'];
 const fieldSourceStrategyOptions: FieldSourceStrategy[] = ['label_value', 'regex', 'table_cell', 'filename', 'constant', 'manual'];
 const projectionSourceStrategyOptions: ProjectionSourceStrategy[] = ['table', 'summary_block', 'regex', 'manual'];
+const productTypeDetectionOptions = [
+  { value: '', label: 'Auto detect' },
+  ...illustrationProductTypeOptions,
+];
 
 function productTypeLabel(value: IllustrationProductType) {
   return value === 'iul' ? 'IUL' : 'Term Life';
@@ -179,6 +187,11 @@ function optionalNumber(value: string) {
 function optionalPageHint(value: string) {
   const numeric = optionalNumber(value);
   return numeric == null ? null : Math.round(numeric);
+}
+
+function isSupportedLogoFile(file: File) {
+  if (['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return true;
+  return /\.(png|jpe?g|webp)$/i.test(file.name);
 }
 
 function fieldValue(proposal: IllustrationTrainingProposal, path: IllustrationFieldPath) {
@@ -269,14 +282,298 @@ function proposalToReviewDraft(response: IllustrationTrainingResponse, mode: Rev
   };
 }
 
+function fileSizeLabel(bytes?: number | null) {
+  if (bytes == null || !Number.isFinite(bytes)) return '-';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function shortHash(value?: string | null, length = 12) {
+  if (!value) return '-';
+  return value.length > length ? `${value.slice(0, length)}...` : value;
+}
+
+function versionRef(profile: IllustrationProfileDetail, profileVersionId?: string | null) {
+  if (!profileVersionId) return '-';
+  const version = profile.versions.find(item => item.id === profileVersionId);
+  return version ? `v${version.versionNumber}` : shortHash(profileVersionId, 8);
+}
+
+function objectCount(value?: Record<string, unknown> | null) {
+  return value && typeof value === 'object' ? Object.keys(value).length : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function hasSavedReviewProposal(run: IllustrationExtractionRunSummary) {
+  return isRecord(run.metadata) && isRecord(run.metadata.reviewProposal);
+}
+
+function latestReviewRun(detail: IllustrationProfileDetail, example: IllustrationTrainingExampleSummary) {
+  return detail.runs.find(run =>
+    run.trainingExampleId === example.id
+    && run.runType === 'admin_train'
+    && (run.status === 'succeeded' || run.status === 'needs_review')
+    && hasSavedReviewProposal(run)
+  ) || null;
+}
+
+function savedProposalFromRun(detail: IllustrationProfileDetail, example: IllustrationTrainingExampleSummary, run: IllustrationExtractionRunSummary): IllustrationTrainingProposal | null {
+  const metadata = isRecord(run.metadata) ? run.metadata : {};
+  const stored = metadata.reviewProposal;
+  if (!isRecord(stored)) return null;
+  const normalizedExtract = isRecord(run.normalizedExtract) && objectCount(run.normalizedExtract)
+    ? run.normalizedExtract
+    : stored.normalizedExtract;
+  if (!isRecord(normalizedExtract)) return null;
+  return {
+    profileId: detail.id,
+    profileVersionId: run.profileVersionId || example.profileVersionId || detail.draftVersion?.id || undefined,
+    exampleId: example.id,
+    runId: run.id,
+    modelProvider: run.modelProvider || undefined,
+    modelName: run.modelName || undefined,
+    normalizedExtract: normalizedExtract as IllustrationTrainingProposal['normalizedExtract'],
+    fingerprints: Array.isArray(stored.fingerprints) ? stored.fingerprints as IllustrationTrainingProposal['fingerprints'] : [],
+    fieldMappings: Array.isArray(stored.fieldMappings) ? stored.fieldMappings as IllustrationTrainingProposal['fieldMappings'] : [],
+    projectionMappings: Array.isArray(stored.projectionMappings) ? stored.projectionMappings as IllustrationTrainingProposal['projectionMappings'] : [],
+    confidence: typeof stored.confidence === 'number' ? stored.confidence : run.extractionConfidence ?? 0,
+    issues: Array.isArray(stored.issues) ? stored.issues as IllustrationTrainingProposal['issues'] : [],
+  };
+}
+
+function JsonPreview({ value }: { value: unknown }) {
+  return <pre className="inventory-json">{jsonText(value)}</pre>;
+}
+
+function InventorySection({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+  return (
+    <details className="inventory-detail-section" open>
+      <summary>
+        <span>{title}</span>
+        <code>{count}</code>
+      </summary>
+      <div className="inventory-table-wrap">
+        {children}
+      </div>
+    </details>
+  );
+}
+
+function SavedProfileDetails({
+  detail,
+  onOpenReview,
+  onRequestRetrain,
+}: {
+  detail: IllustrationProfileDetail;
+  onOpenReview: (example: IllustrationTrainingExampleSummary, run: IllustrationExtractionRunSummary) => void;
+  onRequestRetrain: (example: IllustrationTrainingExampleSummary) => void;
+}) {
+  return (
+    <section className="illustration-training-panel saved-profile-details">
+      <h3>Saved Profile Details</h3>
+
+      <InventorySection title="Versions" count={detail.versions.length}>
+        <table className="inventory-detail-table">
+          <thead>
+            <tr>
+              <th>Version</th>
+              <th>Status</th>
+              <th>Schema</th>
+              <th>Min match</th>
+              <th>Min extraction</th>
+              <th>Published</th>
+              <th>Updated</th>
+              <th>ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            {detail.versions.map(version => (
+              <tr key={version.id}>
+                <td><strong>v{version.versionNumber}</strong></td>
+                <td><StatusBadge value={version.status} /></td>
+                <td>{version.schemaVersion}</td>
+                <td>{formatPercent(version.minMatchScore)}</td>
+                <td>{formatPercent(version.minExtractionConfidence)}</td>
+                <td>{dateTime(version.publishedAt)}</td>
+                <td>{dateTime(version.updatedAt)}</td>
+                <td><code>{shortHash(version.id, 10)}</code></td>
+              </tr>
+            ))}
+            {!detail.versions.length && <tr><td colSpan={8}><div className="empty">No versions saved.</div></td></tr>}
+          </tbody>
+        </table>
+      </InventorySection>
+
+      <InventorySection title="Training Examples" count={detail.examples.length}>
+        <table className="inventory-detail-table training-examples-table">
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Version</th>
+              <th>Status</th>
+              <th>Size</th>
+              <th>Evidence</th>
+              <th>Corrected output</th>
+              <th>Updated</th>
+              <th>Notes</th>
+              <th>Review</th>
+            </tr>
+          </thead>
+          <tbody>
+            {detail.examples.map(example => {
+              const reviewRun = latestReviewRun(detail, example);
+              return (
+                <tr key={example.id}>
+                  <td>
+                    <strong>{example.fileName}</strong>
+                    <br />
+                    <code>{shortHash(example.fileSha256)}</code>
+                  </td>
+                  <td>{versionRef(detail, example.profileVersionId)}</td>
+                  <td><StatusBadge value={example.status} /></td>
+                  <td>{fileSizeLabel(example.fileSizeBytes)}</td>
+                  <td>{objectCount(example.evidenceSnippets as Record<string, unknown> | undefined)} snippets</td>
+                  <td><JsonPreview value={example.correctedExtract || {}} /></td>
+                  <td>{dateTime(example.updatedAt)}</td>
+                  <td className="text-cell">{example.notes || '-'}</td>
+                  <td>
+                    {reviewRun ? (
+                      <ActionButton className="ghost-button compact-action" type="button" icon="eye" onClick={() => onOpenReview(example, reviewRun)}>
+                        Open review
+                      </ActionButton>
+                    ) : example.status === 'needs_review' ? (
+                      <ActionButton className="ghost-button compact-action" type="button" icon="sync" onClick={() => onRequestRetrain(example)}>
+                        Upload again
+                      </ActionButton>
+                    ) : '-'}
+                  </td>
+                </tr>
+              );
+            })}
+            {!detail.examples.length && <tr><td colSpan={9}><div className="empty">No training examples saved.</div></td></tr>}
+          </tbody>
+        </table>
+      </InventorySection>
+
+      <InventorySection title="Fingerprints" count={detail.fingerprints.length}>
+        <table className="inventory-detail-table fingerprints-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Version</th>
+              <th>Strategy</th>
+              <th>Value</th>
+              <th>Page</th>
+              <th>Confidence</th>
+              <th>Weight</th>
+              <th>Required</th>
+              <th>Evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {detail.fingerprints.map((fingerprint, index) => (
+              <tr key={fingerprint.id || `${fingerprint.fingerprintType}:${index}`}>
+                <td><strong>{fingerprint.fingerprintType}</strong></td>
+                <td>{versionRef(detail, fingerprint.profileVersionId)}</td>
+                <td>{fingerprint.matchStrategy}</td>
+                <td className="text-cell"><code>{fingerprint.value}</code></td>
+                <td>{fingerprint.pageHint ?? '-'}</td>
+                <td>{formatPercent(fingerprint.confidence)}</td>
+                <td>{fingerprint.weight}</td>
+                <td><StatusBadge value={fingerprint.required} /></td>
+                <td className="text-cell">{fingerprint.evidenceSnippet || '-'}</td>
+              </tr>
+            ))}
+            {!detail.fingerprints.length && <tr><td colSpan={9}><div className="empty">No fingerprints saved.</div></td></tr>}
+          </tbody>
+        </table>
+      </InventorySection>
+
+      <InventorySection title="Field Mappings" count={detail.fieldMappings.length}>
+        <table className="inventory-detail-table saved-field-mappings-table">
+          <thead>
+            <tr>
+              <th>MANLE field</th>
+              <th>Version</th>
+              <th>Strategy</th>
+              <th>Selector</th>
+              <th>Transform</th>
+              <th>Min confidence</th>
+              <th>Required</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {detail.fieldMappings.map((mapping, index) => (
+              <tr key={mapping.id || `${mapping.fieldPath}:${index}`}>
+                <td><strong>{mapping.fieldPath}</strong></td>
+                <td>{versionRef(detail, mapping.profileVersionId)}</td>
+                <td>{mapping.sourceStrategy}</td>
+                <td><JsonPreview value={mapping.sourceSelector} /></td>
+                <td><JsonPreview value={mapping.transformRules} /></td>
+                <td>{formatPercent(mapping.minConfidence)}</td>
+                <td><StatusBadge value={mapping.required} /></td>
+                <td className="text-cell">{mapping.notes || '-'}</td>
+              </tr>
+            ))}
+            {!detail.fieldMappings.length && <tr><td colSpan={8}><div className="empty">No field mappings saved.</div></td></tr>}
+          </tbody>
+        </table>
+      </InventorySection>
+
+      <InventorySection title="Projection Mappings" count={detail.projectionMappings.length}>
+        <table className="inventory-detail-table saved-projection-mappings-table">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Version</th>
+              <th>Strategy</th>
+              <th>Row selector</th>
+              <th>Columns</th>
+              <th>Values</th>
+              <th>Transform</th>
+              <th>Min confidence</th>
+              <th>Required</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {detail.projectionMappings.map((mapping, index) => (
+              <tr key={mapping.id || `${mapping.projectionKey}:${index}`}>
+                <td><strong>{mapping.projectionKey}</strong></td>
+                <td>{versionRef(detail, mapping.profileVersionId)}</td>
+                <td>{mapping.sourceStrategy}</td>
+                <td><JsonPreview value={mapping.rowSelector} /></td>
+                <td><JsonPreview value={mapping.columnMappings} /></td>
+                <td><JsonPreview value={mapping.valueMappings} /></td>
+                <td><JsonPreview value={mapping.transformRules} /></td>
+                <td>{formatPercent(mapping.minConfidence)}</td>
+                <td><StatusBadge value={mapping.required} /></td>
+                <td className="text-cell">{mapping.notes || '-'}</td>
+              </tr>
+            ))}
+            {!detail.projectionMappings.length && <tr><td colSpan={10}><div className="empty">No projection mappings saved.</div></td></tr>}
+          </tbody>
+        </table>
+      </InventorySection>
+    </section>
+  );
+}
+
 export default function IllustrationProfilesView({ data, reload }: { data: AdminData; reload: LoadAll }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [detail, setDetail] = useState<IllustrationProfileDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [profileUpsert, setProfileUpsert] = useState<IllustrationProfilePdfUpsertResponse | null>(null);
   const [search, setSearch] = useState('');
   const [review, setReview] = useState<ReviewDraft | null>(null);
   const [reviewDirty, setReviewDirty] = useState(false);
   const [submitting, setSubmitting] = useState<SubmitAction>(null);
+  const confirmDialog = useConfirmDialog();
   const [message, setMessage] = useFeedbackState('success');
   const [error, setError] = useFeedbackState('error');
   const [sort, setSort] = useState<SortState<IllustrationProfileSortKey> | null>(null);
@@ -327,6 +624,39 @@ export default function IllustrationProfilesView({ data, reload }: { data: Admin
       await reload('', '', '');
     } catch (err) {
       setError(messageFromError(err));
+    }
+  }
+
+  async function upsertProfileFromPdf(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    setSubmitting('upsertProfile');
+    const form = event.currentTarget;
+    const file = new FormData(form).get('file');
+    if (!(file instanceof File) || !file.name) {
+      setError('A PDF file is required.');
+      setSubmitting(null);
+      return;
+    }
+    const productType = field(form, 'productType');
+    try {
+      const result = await api.upsertIllustrationProfileFromPdf({
+        file,
+        notes: field(form, 'notes'),
+        maxPages: optionalNumber(field(form, 'maxPages')),
+        productType: productType === 'iul' || productType === 'term' ? productType : undefined,
+      });
+      setDetail(result.profile);
+      setProfileUpsert(result);
+      setReview(null);
+      setReviewDirty(false);
+      setMessage(`${result.created ? 'Created' : 'Opened existing'} profile: ${result.identity.carrier} / ${result.identity.productName}.`);
+      await reload('', '', search);
+    } catch (err) {
+      setError(messageFromError(err));
+    } finally {
+      setSubmitting(null);
     }
   }
 
@@ -389,6 +719,35 @@ export default function IllustrationProfilesView({ data, reload }: { data: Admin
     } finally {
       setSubmitting(null);
     }
+  }
+
+  function openSavedReview(example: IllustrationTrainingExampleSummary, run: IllustrationExtractionRunSummary) {
+    if (!detail) return;
+    setError('');
+    setMessage('');
+    const proposal = savedProposalFromRun(detail, example, run);
+    if (!proposal) {
+      setError('This training example needs review, but its saved proposal is not available. Run Train sample again to regenerate the review.');
+      return;
+    }
+    const draft = proposalToReviewDraft({
+      status: run.status === 'needs_review' ? 'needs_review' : 'succeeded',
+      proposal,
+      example,
+      run,
+    }, 'train');
+    setReview(draft);
+    setReviewDirty(true);
+    setMessage('Loaded saved training proposal for review.');
+    window.setTimeout(() => {
+      document.querySelector('.illustration-review-panel')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }, 0);
+  }
+
+  function requestRetrainReview(example: IllustrationTrainingExampleSummary) {
+    setError('');
+    setMessage(`Select ${example.fileName} again under Training PDF, then click Train sample to regenerate the review.`);
+    document.getElementById('illustration-training-upload')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 
   function updateFingerprint(index: number, patch: Partial<FingerprintDraft>) {
@@ -494,7 +853,12 @@ export default function IllustrationProfilesView({ data, reload }: { data: Admin
       setError('Save the reviewed training mappings before publishing.');
       return;
     }
-    if (!window.confirm(`Publish ${detail.carrier} ${detail.productName}? Published mappings become available to generator runtime once runtime integration is added.`)) return;
+    if (!(await confirmDialog({
+      title: 'Publish illustration profile?',
+      message: `${detail.carrier} ${detail.productName} mappings will become available to generator runtime once runtime integration is added.`,
+      confirmLabel: 'Publish profile',
+      variant: 'warning',
+    }))) return;
     setError('');
     setMessage('');
     setSubmitting('publish');
@@ -504,6 +868,58 @@ export default function IllustrationProfilesView({ data, reload }: { data: Admin
       setReview(null);
       setReviewDirty(false);
       setMessage('Illustration profile published.');
+      await reload('', '', search);
+    } catch (err) {
+      setError(messageFromError(err));
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  async function uploadCarrierLogo(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!detail) return;
+    setError('');
+    setMessage('');
+    const form = event.currentTarget;
+    const file = new FormData(form).get('file');
+    if (!(file instanceof File) || !file.name) {
+      setError('A carrier logo image is required.');
+      return;
+    }
+    if (!isSupportedLogoFile(file)) {
+      setError('Carrier logo must be PNG, JPEG, or WebP.');
+      return;
+    }
+    setSubmitting('logo');
+    try {
+      const result = await api.uploadIllustrationCarrierLogo(detail.id, file);
+      setDetail(result.profile);
+      setMessage('Carrier logo saved.');
+      form.reset();
+      await reload('', '', search);
+    } catch (err) {
+      setError(messageFromError(err));
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  async function clearCarrierLogo() {
+    if (!detail) return;
+    if (!(await confirmDialog({
+      title: 'Clear carrier logo?',
+      message: `Clear the approved logo for ${detail.carrier}?`,
+      confirmLabel: 'Clear logo',
+      variant: 'danger',
+    }))) return;
+    setError('');
+    setMessage('');
+    setSubmitting('logo');
+    try {
+      const result = await api.clearIllustrationCarrierLogo(detail.id);
+      setDetail(result.profile);
+      setMessage('Carrier logo cleared.');
       await reload('', '', search);
     } catch (err) {
       setError(messageFromError(err));
@@ -528,11 +944,54 @@ export default function IllustrationProfilesView({ data, reload }: { data: Admin
             <input name="search" placeholder="Search carrier or product" defaultValue={search} />
             <ActionButton type="submit" icon="search">Search</ActionButton>
           </form>
-          <ActionButton type="button" icon="plus" onClick={() => setCreateOpen(true)}>Create profile</ActionButton>
+          <ActionButton type="button" icon="plus" onClick={() => setCreateOpen(true)}>Manual profile</ActionButton>
         </div>
       </div>
       {message && <div className="success-box compact">{message}</div>}
       {error && <div className="error-box compact">{error}</div>}
+
+      <section className="profile-upsert-panel">
+        <div className="panel-head inline-panel-head">
+          <div>
+            <h3>Upload PDF Profile</h3>
+            {profileUpsert && (
+              <p className="muted">
+                {profileUpsert.file.fileName} / confidence {formatPercent(profileUpsert.identity.confidence)}
+              </p>
+            )}
+          </div>
+          {profileUpsert && <StatusBadge value={profileUpsert.created ? 'created' : 'existing'} />}
+        </div>
+        <form className="profile-upsert-form" onSubmit={upsertProfileFromPdf}>
+          <label>PDF<input name="file" type="file" accept="application/pdf,.pdf" required /></label>
+          <label>Product type<CustomSelect name="productType" defaultValue="" placeholder="Auto detect" options={productTypeDetectionOptions} /></label>
+          <label>Max pages<input name="maxPages" type="number" min={1} placeholder="All pages" /></label>
+          <label>Notes<input name="notes" placeholder="Internal notes for profile creation" /></label>
+          <ActionButton type="submit" icon="sync" disabled={submitting != null}>
+            {submitting === 'upsertProfile' ? 'Extracting...' : 'Extract + upsert'}
+          </ActionButton>
+        </form>
+        {profileUpsert && (
+          <div className="identity-result-grid">
+            <div>
+              <span>Carrier</span>
+              <strong>{profileUpsert.identity.carrier}</strong>
+              <small>{profileUpsert.identity.evidence.carrier ? `Page ${profileUpsert.identity.evidence.carrier.page}` : 'Manual'}</small>
+            </div>
+            <div>
+              <span>Product</span>
+              <strong>{profileUpsert.identity.productName}</strong>
+              <small>{profileUpsert.identity.evidence.productName ? `Page ${profileUpsert.identity.evidence.productName.page}` : 'Manual'}</small>
+            </div>
+            <div>
+              <span>Type</span>
+              <strong>{productTypeLabel(profileUpsert.identity.productType)}</strong>
+              <small>{profileUpsert.file.extractedPageCount} / {profileUpsert.file.pageCount} pages</small>
+            </div>
+          </div>
+        )}
+      </section>
+
       <table>
         <thead>
           <tr>
@@ -613,9 +1072,36 @@ export default function IllustrationProfilesView({ data, reload }: { data: Admin
                   <div><span>Field mappings</span><code>{detail.fieldMappings.length}</code></div>
                   <div><span>Projection mappings</span><code>{detail.projectionMappings.length}</code></div>
                 </div>
+                <div className="carrier-logo-panel">
+                  <div className="carrier-logo-head">
+                    <strong>Carrier logo</strong>
+                    {detail.carrierLogoUrl ? <StatusBadge value="saved" /> : <StatusBadge value="missing" />}
+                  </div>
+                  <div className="carrier-logo-preview">
+                    {detail.carrierLogoUrl ? (
+                      <img src={detail.carrierLogoUrl} alt={`${detail.carrier} logo`} />
+                    ) : (
+                      <span>No carrier logo saved.</span>
+                    )}
+                  </div>
+                  <form className="carrier-logo-form" onSubmit={uploadCarrierLogo}>
+                    <input name="file" type="file" accept="image/png,image/jpeg,image/webp" />
+                    <ActionButton type="submit" icon="save" disabled={submitting != null}>
+                      {submitting === 'logo' ? 'Saving...' : 'Upload logo'}
+                    </ActionButton>
+                    <ActionButton className="ghost-button" type="button" icon="x" onClick={clearCarrierLogo} disabled={!detail.carrierLogoUrl || submitting != null}>
+                      Clear
+                    </ActionButton>
+                  </form>
+                  {detail.carrierLogoFileName && (
+                    <small>{detail.carrierLogoFileName} / {fileSizeLabel(detail.carrierLogoFileSizeBytes)}</small>
+                  )}
+                </div>
               </div>
 
-              <section className="illustration-training-panel">
+              <SavedProfileDetails detail={detail} onOpenReview={openSavedReview} onRequestRetrain={requestRetrainReview} />
+
+              <section className="illustration-training-panel" id="illustration-training-upload">
                 <h3>Training and Testing</h3>
                 <div className="illustration-upload-grid">
                   <form className="stack-form" onSubmit={(event) => runTrainingUpload(event, 'train')}>

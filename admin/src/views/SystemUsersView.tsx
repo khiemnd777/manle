@@ -15,6 +15,7 @@ import {
   nextSortState,
   sortedRows,
   timestamp,
+  useConfirmDialog,
   useFeedbackState,
 } from '../adminShared';
 import type { SortState, SortValue } from '../adminShared';
@@ -42,6 +43,7 @@ export default function SystemUsersView({
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<SystemUser | null>(null);
   const [search, setSearch] = useState('');
+  const confirmDialog = useConfirmDialog();
   const [message, setMessage] = useFeedbackState('success');
   const [error, setError] = useFeedbackState('error');
   const [sort, setSort] = useState<SortState<SystemUserSortKey> | null>(null);
@@ -128,7 +130,12 @@ export default function SystemUsersView({
       setError('Use the profile page to manage your own account.');
       return;
     }
-    if (!window.confirm(`Delete system user ${user.email}? This cannot be undone.`)) return;
+    if (!(await confirmDialog({
+      title: 'Delete system user?',
+      message: `Delete ${user.email}? This cannot be undone.`,
+      confirmLabel: 'Delete user',
+      variant: 'danger',
+    }))) return;
     setError('');
     setMessage('');
     try {

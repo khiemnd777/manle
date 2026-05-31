@@ -282,7 +282,7 @@ export async function upsertEmailTemplate(actor: Actor, input: EmailTemplateInpu
       ${htmlBody},
       ${textBody},
       ${input.enabled ?? true},
-      ${JSON.stringify(variables)}
+      (${JSON.stringify(variables)}::text)::jsonb
     )
     on conflict (key) do update set
       name = excluded.name,

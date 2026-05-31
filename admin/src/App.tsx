@@ -5,6 +5,7 @@ import type { Actor } from './api/client';
 import type { AdminData, View } from './adminTypes';
 import {
   ActionButton,
+  AppDialogProvider,
   ToastContext,
   ToastStack,
   field,
@@ -358,82 +359,84 @@ function AdminShell({
 
   return (
     <ToastContext.Provider value={notify}>
-      <div className="admin-layout">
-        <aside className="sidebar">
-          <div className="side-brand">
-            <span className="brand-mark">M</span>
-            <div>
-              <strong>MANLE Admin</strong>
-              <span>Operations Console</span>
-            </div>
-          </div>
-          {isAdmin && (
-            <nav className="side-nav" aria-label="Admin sections">
-              {adminNavItems.map(item => (
-                <button
-                  key={item}
-                  className={`side-nav-button${view === item ? ' active' : ''}`}
-                  onClick={() => setView(item)}
-                  aria-current={view === item ? 'page' : undefined}
-                >
-                  <Icon name={viewMeta[item].icon} />
-                  <span>{viewMeta[item].label}</span>
-                </button>
-              ))}
-            </nav>
-          )}
-          <div className="side-footer">
-            <button
-              type="button"
-              className={`profile-link${view === 'profile' ? ' active' : ''}`}
-              onClick={() => setView('profile')}
-              aria-current={view === 'profile' ? 'page' : undefined}
-            >
-              <Icon name="profile" />
-              <span>{actor.email}</span>
-            </button>
-            <ActionButton type="button" icon="logout" onClick={logout}>Logout</ActionButton>
-          </div>
-        </aside>
-        <main className="admin-main">
-          <header className="topbar">
-            <div className="topbar-title">
-              <span className="topbar-icon"><Icon name={activeView.icon} /></span>
+      <AppDialogProvider>
+        <div className="admin-layout">
+          <aside className="sidebar">
+            <div className="side-brand">
+              <span className="brand-mark">M</span>
               <div>
-                <h1>{activeView.label}</h1>
-                <p>{activeView.description}</p>
+                <strong>MANLE Admin</strong>
+                <span>Operations Console</span>
               </div>
             </div>
-            {isAdmin && <ActionButton type="button" icon="refresh" onClick={() => loadAll()} disabled={loading}>Refresh</ActionButton>}
-          </header>
-          {isAdmin && (
-            <section className="metric-grid" aria-label="Admin overview">
-              <Metric icon="users" label="System users" value={data.overview.systemUsers} />
-              <Metric icon="customers" label="Customers" value={data.overview.customers} />
-              <Metric icon="subscriptions" label="Active subscriptions" value={data.overview.activeSubscriptions} />
-              <Metric icon="promotions" label="Active promotions" value={data.overview.activePromotions} />
-              <Metric icon="tiers" label="Active tiers" value={data.overview.activeTiers} />
-            </section>
-          )}
-          {error && <div className="error-box">{error}</div>}
-          {loading ? <div className="loading">Loading data...</div> : (
-            <Suspense fallback={<div className="loading">Loading view...</div>}>
-              {view === 'users' && isAdmin && <SystemUsersView actor={actor} data={data} reload={loadAll} />}
-              {view === 'customers' && isAdmin && <CustomersView data={data} reload={loadAll} />}
-              {view === 'subscriptions' && isAdmin && <SubscriptionsView data={data} reload={loadAll} />}
-              {view === 'promotions' && isAdmin && <PromotionsView data={data} reload={loadAll} />}
-              {view === 'tiers' && isAdmin && <TiersView data={data} reload={loadAll} />}
-              {view === 'entitlements' && isAdmin && <EntitlementsView data={data} reload={loadAll} />}
-              {view === 'paddle' && isAdmin && <PaddleSettingsView data={data} reload={loadAll} />}
-              {view === 'emails' && isAdmin && <EmailsView data={data} reload={loadAll} />}
-              {view === 'illustrations' && isAdmin && <IllustrationProfilesView data={data} reload={loadAll} />}
-              {view === 'audit' && isAdmin && <AuditView logs={data.auditLogs} />}
-              {view === 'profile' && <ProfileView actor={actor} onActorChange={onActorChange} />}
-            </Suspense>
-          )}
-        </main>
-      </div>
-      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+            {isAdmin && (
+              <nav className="side-nav" aria-label="Admin sections">
+                {adminNavItems.map(item => (
+                  <button
+                    key={item}
+                    className={`side-nav-button${view === item ? ' active' : ''}`}
+                    onClick={() => setView(item)}
+                    aria-current={view === item ? 'page' : undefined}
+                  >
+                    <Icon name={viewMeta[item].icon} />
+                    <span>{viewMeta[item].label}</span>
+                  </button>
+                ))}
+              </nav>
+            )}
+            <div className="side-footer">
+              <button
+                type="button"
+                className={`profile-link${view === 'profile' ? ' active' : ''}`}
+                onClick={() => setView('profile')}
+                aria-current={view === 'profile' ? 'page' : undefined}
+              >
+                <Icon name="profile" />
+                <span>{actor.email}</span>
+              </button>
+              <ActionButton type="button" icon="logout" onClick={logout}>Logout</ActionButton>
+            </div>
+          </aside>
+          <main className="admin-main">
+            <header className="topbar">
+              <div className="topbar-title">
+                <span className="topbar-icon"><Icon name={activeView.icon} /></span>
+                <div>
+                  <h1>{activeView.label}</h1>
+                  <p>{activeView.description}</p>
+                </div>
+              </div>
+              {isAdmin && <ActionButton type="button" icon="refresh" onClick={() => loadAll()} disabled={loading}>Refresh</ActionButton>}
+            </header>
+            {isAdmin && (
+              <section className="metric-grid" aria-label="Admin overview">
+                <Metric icon="users" label="System users" value={data.overview.systemUsers} />
+                <Metric icon="customers" label="Customers" value={data.overview.customers} />
+                <Metric icon="subscriptions" label="Active subscriptions" value={data.overview.activeSubscriptions} />
+                <Metric icon="promotions" label="Active promotions" value={data.overview.activePromotions} />
+                <Metric icon="tiers" label="Active tiers" value={data.overview.activeTiers} />
+              </section>
+            )}
+            {error && <div className="error-box">{error}</div>}
+            {loading ? <div className="loading">Loading data...</div> : (
+              <Suspense fallback={<div className="loading">Loading view...</div>}>
+                {view === 'users' && isAdmin && <SystemUsersView actor={actor} data={data} reload={loadAll} />}
+                {view === 'customers' && isAdmin && <CustomersView data={data} reload={loadAll} />}
+                {view === 'subscriptions' && isAdmin && <SubscriptionsView data={data} reload={loadAll} />}
+                {view === 'promotions' && isAdmin && <PromotionsView data={data} reload={loadAll} />}
+                {view === 'tiers' && isAdmin && <TiersView data={data} reload={loadAll} />}
+                {view === 'entitlements' && isAdmin && <EntitlementsView data={data} reload={loadAll} />}
+                {view === 'paddle' && isAdmin && <PaddleSettingsView data={data} reload={loadAll} />}
+                {view === 'emails' && isAdmin && <EmailsView data={data} reload={loadAll} />}
+                {view === 'illustrations' && isAdmin && <IllustrationProfilesView data={data} reload={loadAll} />}
+                {view === 'audit' && isAdmin && <AuditView logs={data.auditLogs} />}
+                {view === 'profile' && <ProfileView actor={actor} onActorChange={onActorChange} />}
+              </Suspense>
+            )}
+          </main>
+        </div>
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      </AppDialogProvider>
     </ToastContext.Provider>
   );
 }

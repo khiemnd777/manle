@@ -25,7 +25,7 @@ and response shape are all visible in that file.
 | admin customers, subscriptions, promotions, price tiers, entitlements, audit | `src/services/admin.ts` | `src/types/admin.ts`, `../admin/src/App.tsx` | `listCustomers`, `createCustomer`, `updateSubscription`, `upsertPriceTier`, `updateTierEntitlement`, `auditLogs` |
 | system users, admin/normal user role, reset password | `src/services/admin.ts`, `src/index.ts` | `src/services/auth.ts`, `../admin/src/App.tsx` | `listSystemUsers`, `createSystemUser`, `updateSystemUser`, `/api/admin/system-users`, `role in ('admin', 'user')` |
 | illustration profile training schema, PDF extraction profile storage | `db/migrations/012_illustration_profiles.sql` | `src/types/illustration.ts`, `src/services/illustrations.ts` | `illustration_profiles`, `illustration_profile_versions`, `illustration_training_examples`, `illustration_extraction_runs`, `illustration_profile_fingerprints`, `illustration_profile_field_mappings`, `illustration_profile_projection_mappings` |
-| admin illustration profile CRUD/train/test/publish APIs | `src/index.ts`, `src/services/illustrations.ts` | `src/services/pdfExtraction.ts`, `src/services/openaiIllustrationExtraction.ts`, future admin client | `/api/admin/illustration-profiles`, `listIllustrationProfiles`, `createIllustrationProfile`, `getIllustrationProfile`, `train`, `examples`, `test`, `publish` |
+| admin illustration profile CRUD/train/test/publish APIs | `src/index.ts`, `src/services/illustrations.ts` | `src/services/pdfExtraction.ts`, `src/services/openaiIllustrationExtraction.ts`, future admin client | `/api/admin/illustration-profiles`, `listIllustrationProfiles`, `createIllustrationProfile`, `upsertIllustrationProfileFromPdf`, `getIllustrationProfile`, `train`, `examples`, `test`, `publish` |
 | normalized illustration extraction contracts, profile mappings, runtime extraction statuses | `src/types/illustration.ts` | `../fe/src/pdf.ts`, `../admin/src/api/client.ts` | `IllustrationExtract`, `IllustrationRuntimeExtractResponse`, `IllustrationTrainingProposal`, `unsupported_profile`, `no_published_profile`, `needs_review`, `extraction_failed`, `validateIllustrationExtract` |
 | illustration profile repositories/services, draft/publish helpers, training examples, extraction run logs | `src/services/illustrations.ts` | `src/types/illustration.ts`, `src/index.ts` future routes | `listIllustrationProfiles`, `getIllustrationProfile`, `createIllustrationProfile`, `ensureDraftIllustrationProfileVersion`, `publishIllustrationProfileVersion`, `storeIllustrationTrainingExample`, `recordIllustrationExtractionRun` |
 | backend PDF text/layout extraction, PDF hash, page lines/items | `src/services/pdfExtraction.ts` | `src/types/illustration.ts`, `../fe/src/pdf.ts` parser reference | `extractPdfTextLayout`, `PdfExtractionResult`, `fileSha256`, `pages`, `lines`, `items`, `pdfjs-dist` |
@@ -95,7 +95,10 @@ before reaching these data-management branches.
 | `POST /api/admin/paddle/sync` | `syncPaddleSubscription` | Sync by Paddle subscription ID or customer ID; audits action. |
 | `GET /api/admin/illustration-profiles?search=` | `listIllustrationProfiles` | Lists illustration training profiles with active published version summary when present. |
 | `POST /api/admin/illustration-profiles` | `createIllustrationProfile` | Creates draft profile and initial draft version; audits `illustration_profile.create`. |
+| `POST /api/admin/illustration-profiles/upsert-from-pdf` | `extractPdfTextLayout`, `upsertIllustrationProfileFromPdf` | Multipart `file`/`pdf` upload; extracts carrier/product/product type from PDF text and creates or opens the matching profile. |
 | `GET /api/admin/illustration-profiles/:id` | `getIllustrationProfile` | Returns profile detail with versions, mappings, fingerprints, and training examples. |
+| `POST /api/admin/illustration-profiles/:id/carrier-logo` | `updateIllustrationCarrierLogo` | Uploads a reviewed PNG/JPEG/WebP carrier logo asset reused by matching runtime profiles. |
+| `DELETE /api/admin/illustration-profiles/:id/carrier-logo` | `clearIllustrationCarrierLogo` | Removes the carrier logo asset for the selected profile's carrier. |
 | `POST /api/admin/illustration-profiles/:id/train` | `extractPdfTextLayout`, `storeIllustrationTrainingExample`, `generateIllustrationTrainingProposal` | Multipart `file`/`pdf` upload; stores example/run, calls OpenAI admin training, returns proposal. |
 | `PATCH /api/admin/illustration-profiles/:id/examples/:exampleId` | `applyIllustrationTrainingCorrection` | Stores admin-corrected output and optionally replaces draft fingerprints/mappings. |
 | `POST /api/admin/illustration-profiles/:id/test` | `extractPdfTextLayout`, `generateIllustrationTrainingProposal` | Multipart `file`/`pdf` upload; records admin test run without storing a training example. |
@@ -172,9 +175,17 @@ before reaching these data-management branches.
 `src/services/illustrations.ts`:
 
 - Profile service/repository helpers: `listIllustrationProfiles`, `getIllustrationProfile`, `createIllustrationProfile`, `updateIllustrationProfile`.
+- Carrier logo assets: `updateIllustrationCarrierLogo`, `clearIllustrationCarrierLogo`, and profile summary/detail `carrierLogoUrl` fields.
+- PDF profile identity helper: `upsertIllustrationProfileFromPdf` extracts carrier/product/product type from an uploaded PDF and creates or opens the matching profile.
 - Version helpers: `ensureDraftIllustrationProfileVersion`, `publishIllustrationProfileVersion`, `listPublishedIllustrationProfileVersions`, `getPublishedIllustrationProfileVersion`.
 - Mapping loaders: `listFingerprintsForVersion`, `listFieldMappingsForVersion`, `listProjectionMappingsForVersion`.
 - Training/correction/run storage: `storeIllustrationTrainingExample`, `updateIllustrationTrainingExample`, `applyIllustrationTrainingCorrection`, `replaceIllustrationProfileVersionMappings`, `recordIllustrationExtractionRun`, `updateIllustrationExtractionRun`, `listIllustrationExtractionRuns`.
+- Training example lifecycle: admin train starts examples as `training`, marks
+  completed OpenAI proposals as `needs_review`, marks OpenAI failures as
+  `rejected`, and marks saved admin corrections as `reviewed`.
+- Profile detail includes recent extraction runs. Admin train stores the full
+  review proposal under run `metadata.reviewProposal` so the Admin UI can reopen
+  mapping review after refresh.
 - Publish validation: `validatePublishableIllustrationProfileVersion` requires required field mappings plus required carrier and non-carrier fingerprints.
 - Admin mutations call `audit`; profile CRUD/train/test/publish helpers are exposed through admin-only routes in `src/index.ts`.
 
