@@ -1061,6 +1061,13 @@ td button { font-size: 12px; }
   font-size: 12px;
   line-height: 1.45;
 }
+.verification-panel {
+  display: grid;
+  gap: 10px;
+}
+.verification-table {
+  min-width: 760px;
+}
 .illustration-review-table {
   min-width: 1080px;
 }

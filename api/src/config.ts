@@ -45,6 +45,7 @@ export const config = {
   databaseUrl: Bun.env.DATABASE_URL || '',
   host: Bun.env.API_HOST || '127.0.0.1',
   port: Number(Bun.env.API_PORT || 8787),
+  requestIdleTimeoutSeconds: Number(Bun.env.API_REQUEST_IDLE_TIMEOUT_SECONDS || 120),
   feOrigin,
   adminOrigin,
   allowedCorsOrigins: allowedCorsOrigins(feOrigin, adminOrigin, ...splitOrigins(Bun.env.CORS_ORIGINS)),

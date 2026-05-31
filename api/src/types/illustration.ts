@@ -127,7 +127,9 @@ export type IllustrationValidationIssue = {
     | 'invalid_confidence'
     | 'invalid_number'
     | 'invalid_evidence'
-    | 'invalid_projection';
+    | 'invalid_projection'
+    | 'mapping_missing'
+    | 'mapping_replay_failed';
   path: string;
   message: string;
 };
@@ -266,6 +268,30 @@ export type IllustrationProfileProjectionMapping = {
   notes?: string;
 };
 
+export type IllustrationMappingVerificationStatus = 'passed' | 'failed' | 'missing' | 'skipped';
+
+export type IllustrationFieldMappingVerification = {
+  fieldPath: IllustrationFieldPath;
+  required: boolean;
+  status: IllustrationMappingVerificationStatus;
+  expectedValue?: JsonValue;
+  replayValue?: JsonValue;
+  evidence?: IllustrationEvidenceSnippet;
+  mappingIndex?: number;
+  message?: string;
+};
+
+export type IllustrationTrainingVerificationReport = {
+  publishable: boolean;
+  requiredFieldsPassed: boolean;
+  requiredFields: IllustrationFieldPath[];
+  fieldMappings: IllustrationFieldMappingVerification[];
+  issues: IllustrationValidationIssue[];
+  trainingFileName?: string;
+  trainingFileSha256?: string;
+  verifiedAt: string;
+};
+
 export type IllustrationTrainingExampleSummary = {
   id: string;
   profileId: string;
@@ -383,6 +409,7 @@ export type IllustrationTrainingProposal = {
   fingerprints: IllustrationProfileFingerprint[];
   fieldMappings: IllustrationProfileFieldMapping[];
   projectionMappings: IllustrationProfileProjectionMapping[];
+  verification?: IllustrationTrainingVerificationReport;
   confidence: number;
   issues: IllustrationValidationIssue[];
 };

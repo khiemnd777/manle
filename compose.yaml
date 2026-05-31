@@ -37,6 +37,7 @@ services:
     restart: unless-stopped
     environment:
       API_HOST: ${API_HOST:-0.0.0.0}
+      API_REQUEST_IDLE_TIMEOUT_SECONDS: ${API_REQUEST_IDLE_TIMEOUT_SECONDS:-120}
       FE_ORIGIN: http://${PUBLIC_ORIGIN_HOST:-127.0.0.1}:${FE_PORT:-5175}
       ADMIN_ORIGIN: http://${PUBLIC_ORIGIN_HOST:-127.0.0.1}:${ADMIN_PORT:-5176}
       CORS_ORIGINS: ${CORS_ORIGINS:-}

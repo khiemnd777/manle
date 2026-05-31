@@ -215,7 +215,7 @@ export function evaluateFingerprint(fingerprint: IllustrationProfileFingerprint,
   return evaluateFingerprintWithHint({ ...fingerprint, pageHint: null }, pdf);
 }
 
-function candidateForProfile(
+export function candidateForProfile(
   publishedProfile: PublishedIllustrationProfileVersion,
   pdf: PdfExtractionResult,
 ): IllustrationProfileMatchCandidate | null {
@@ -224,12 +224,16 @@ function candidateForProfile(
 
   const evaluations = fingerprints.map(fingerprint => evaluateFingerprint(fingerprint, pdf));
   const matched = evaluations.filter(evaluation => evaluation.matched);
-  const totalWeight = fingerprints.reduce((sum, fingerprint) => sum + Math.max(0, fingerprint.weight || 0), 0);
-  const matchedWeight = matched.reduce((sum, evaluation) => {
-    const weight = Math.max(0, evaluation.fingerprint.weight || 0);
-    return sum + weight * evaluation.fingerprint.confidence;
-  }, 0);
   const requiredFingerprints = fingerprints.filter(fingerprint => fingerprint.required);
+  const scoringFingerprints = requiredFingerprints.length ? requiredFingerprints : fingerprints;
+  const scoringFingerprintSet = new Set(scoringFingerprints);
+  const totalWeight = scoringFingerprints.reduce((sum, fingerprint) => sum + Math.max(0, fingerprint.weight || 0), 0);
+  const matchedWeight = matched
+    .filter(evaluation => scoringFingerprintSet.has(evaluation.fingerprint))
+    .reduce((sum, evaluation) => {
+      const weight = Math.max(0, evaluation.fingerprint.weight || 0);
+      return sum + weight * evaluation.fingerprint.confidence;
+    }, 0);
   const matchedRequiredFingerprints = requiredFingerprints.filter(fingerprint =>
     matched.some(evaluation => evaluation.fingerprint.id === fingerprint.id),
   );

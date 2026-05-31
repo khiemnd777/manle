@@ -257,6 +257,30 @@ export type IllustrationValidationIssue = {
   message: string;
 };
 
+export type IllustrationMappingVerificationStatus = 'passed' | 'failed' | 'missing' | 'skipped';
+
+export type IllustrationFieldMappingVerification = {
+  fieldPath: IllustrationFieldPath;
+  required: boolean;
+  status: IllustrationMappingVerificationStatus;
+  expectedValue?: unknown;
+  replayValue?: unknown;
+  evidence?: IllustrationEvidenceSnippet;
+  mappingIndex?: number;
+  message?: string;
+};
+
+export type IllustrationTrainingVerificationReport = {
+  publishable: boolean;
+  requiredFieldsPassed: boolean;
+  requiredFields: IllustrationFieldPath[];
+  fieldMappings: IllustrationFieldMappingVerification[];
+  issues: IllustrationValidationIssue[];
+  trainingFileName?: string;
+  trainingFileSha256?: string;
+  verifiedAt: string;
+};
+
 export type IllustrationProfileSummary = {
   id: string;
   carrier: string;
@@ -388,6 +412,7 @@ export type IllustrationTrainingProposal = {
   fingerprints: IllustrationProfileFingerprint[];
   fieldMappings: IllustrationProfileFieldMapping[];
   projectionMappings: IllustrationProfileProjectionMapping[];
+  verification?: IllustrationTrainingVerificationReport;
   confidence: number;
   issues: IllustrationValidationIssue[];
 };
@@ -441,6 +466,13 @@ export type IllustrationTrainingCorrectionInput = {
   fingerprints?: IllustrationProfileFingerprint[];
   fieldMappings?: IllustrationProfileFieldMapping[];
   projectionMappings?: IllustrationProfileProjectionMapping[];
+};
+
+export type IllustrationTrainingAutoFixInput = {
+  profileVersionId?: string | null;
+  correctedExtract?: IllustrationExtract | Record<string, unknown>;
+  evidenceSnippets?: Record<string, IllustrationEvidenceSnippet> | Record<string, unknown>;
+  verificationIssues?: IllustrationValidationIssue[];
 };
 
 export type IllustrationTrainingResponse =
@@ -632,15 +664,22 @@ export const api = {
     }),
   illustrationProfile: (id: string) =>
     apiFetch<{ profile: IllustrationProfileDetail }>(`/api/admin/illustration-profiles/${id}`),
+  deleteIllustrationProfile: (id: string) =>
+    apiFetch<{ ok: true }>(`/api/admin/illustration-profiles/${id}`, { method: 'DELETE' }),
   trainIllustrationProfile: (id: string, body: IllustrationTrainingUploadInput) =>
     apiFetch<IllustrationTrainingResponse>(`/api/admin/illustration-profiles/${id}/train`, {
       method: 'POST',
       body: illustrationTrainingForm(body),
     }),
   correctIllustrationTrainingExample: (profileId: string, exampleId: string, body: IllustrationTrainingCorrectionInput) =>
-    apiFetch<{ example: IllustrationTrainingExampleSummary; profile: IllustrationProfileDetail }>(
+    apiFetch<{ example: IllustrationTrainingExampleSummary; profile: IllustrationProfileDetail; verification?: IllustrationTrainingVerificationReport | null }>(
       `/api/admin/illustration-profiles/${profileId}/examples/${exampleId}`,
       { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  autoFixIllustrationTrainingMappings: (profileId: string, exampleId: string, body: IllustrationTrainingAutoFixInput = {}) =>
+    apiFetch<IllustrationTrainingResponse>(
+      `/api/admin/illustration-profiles/${profileId}/examples/${exampleId}/auto-fix`,
+      { method: 'POST', body: JSON.stringify(body) },
     ),
   testIllustrationProfile: (id: string, body: IllustrationTrainingUploadInput) =>
     apiFetch<IllustrationTrainingResponse>(`/api/admin/illustration-profiles/${id}/test`, {

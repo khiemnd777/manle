@@ -13,8 +13,11 @@ import type {
   IllustrationProfileProjectionMapping,
   IllustrationProfileSummary,
   IllustrationTrainingExampleSummary,
+  IllustrationTrainingAutoFixInput,
+  IllustrationTrainingCorrectionInput,
   IllustrationTrainingProposal,
   IllustrationTrainingResponse,
+  IllustrationTrainingVerificationReport,
 } from '../api/client';
 import type { AdminData } from '../adminTypes';
 import {
@@ -38,7 +41,7 @@ import { illustrationProductTypeOptions } from './options';
 type LoadAll = (customerSearch?: string, systemUserSearch?: string, illustrationProfileSearch?: string) => Promise<void>;
 type IllustrationProfileSortKey = 'carrier' | 'product' | 'productType' | 'status' | 'activeVersion' | 'updatedAt';
 type ReviewMode = 'train' | 'test';
-type SubmitAction = ReviewMode | 'saveReview' | 'publish' | 'upsertProfile' | 'logo' | null;
+type SubmitAction = ReviewMode | 'saveReview' | 'autoFix' | 'publish' | 'deleteProfile' | 'upsertProfile' | 'logo' | null;
 type FingerprintType = IllustrationProfileFingerprint['fingerprintType'];
 type FingerprintStrategy = IllustrationProfileFingerprint['matchStrategy'];
 type FieldSourceStrategy = IllustrationProfileFieldMapping['sourceStrategy'];
@@ -178,6 +181,12 @@ function parseJsonObject(value: string, label: string): Record<string, unknown> 
   return parsed as Record<string, unknown>;
 }
 
+function stripSelectorLiteralValue(selector: Record<string, unknown>) {
+  const sanitized = { ...selector };
+  delete sanitized.value;
+  return sanitized;
+}
+
 function optionalNumber(value: string) {
   if (!value.trim()) return undefined;
   const numeric = Number(value);
@@ -282,6 +291,90 @@ function proposalToReviewDraft(response: IllustrationTrainingResponse, mode: Rev
   };
 }
 
+function reviewDraftToCorrectionInput(
+  detail: IllustrationProfileDetail,
+  review: ReviewDraft,
+): IllustrationTrainingCorrectionInput {
+  const correctedExtract = parseJsonObject(review.normalizedExtractJson, 'Corrected extract');
+  const evidenceSnippets = parseJsonObject(
+    jsonText(correctedExtract.evidence || review.proposal.normalizedExtract.evidence),
+    'Evidence snippets',
+  );
+  const fingerprints: IllustrationProfileFingerprint[] = review.fingerprints
+    .filter(row => row.include)
+    .map(row => ({
+      fingerprintType: row.fingerprintType,
+      matchStrategy: row.matchStrategy,
+      value: row.value,
+      pageHint: optionalPageHint(row.pageHint),
+      required: row.required,
+      weight: row.weight,
+      confidence: row.confidence,
+      evidenceSnippet: row.evidenceSnippet,
+    }));
+  const fieldMappings: IllustrationProfileFieldMapping[] = review.fieldMappings
+    .filter(row => row.include)
+    .map(row => {
+      const sourceSelector = parseJsonObject(row.sourceSelectorJson, `${row.fieldPath} selector`);
+      return {
+        fieldPath: row.fieldPath,
+        sourceStrategy: row.sourceStrategy,
+        sourceSelector: row.sourceStrategy === 'constant' || row.sourceStrategy === 'manual'
+          ? sourceSelector
+          : stripSelectorLiteralValue(sourceSelector),
+        transformRules: parseJsonObject(row.transformRulesJson, `${row.fieldPath} transform rules`),
+        required: row.required,
+        minConfidence: row.minConfidence,
+        notes: row.notes,
+      };
+    });
+  const projectionMappings: IllustrationProfileProjectionMapping[] = review.projectionMappings
+    .filter(row => row.include)
+    .map(row => {
+      const rowSelector = parseJsonObject(row.rowSelectorJson, `${row.projectionKey} row selector`);
+      const columnMappings = parseJsonObject(row.columnMappingsJson, `${row.projectionKey} column mappings`);
+      const valueMappings = parseJsonObject(row.valueMappingsJson, `${row.projectionKey} value mappings`);
+      const shouldStrip = row.sourceStrategy !== 'manual';
+      return {
+        projectionKey: row.projectionKey,
+        sourceStrategy: row.sourceStrategy,
+        rowSelector: shouldStrip ? stripSelectorLiteralValue(rowSelector) : rowSelector,
+        columnMappings: shouldStrip ? stripSelectorLiteralValue(columnMappings) : columnMappings,
+        valueMappings: shouldStrip ? stripSelectorLiteralValue(valueMappings) : valueMappings,
+        transformRules: parseJsonObject(row.transformRulesJson, `${row.projectionKey} transform rules`),
+        required: row.required,
+        minConfidence: row.minConfidence,
+        notes: row.notes,
+      };
+    });
+  return {
+    profileVersionId: review.proposal.profileVersionId || detail.draftVersion?.id || null,
+    status: 'reviewed',
+    correctedExtract,
+    evidenceSnippets,
+    fingerprints,
+    fieldMappings,
+    projectionMappings,
+  };
+}
+
+function reviewDraftToAutoFixInput(
+  detail: IllustrationProfileDetail,
+  review: ReviewDraft,
+): IllustrationTrainingAutoFixInput {
+  const correctedExtract = parseJsonObject(review.normalizedExtractJson, 'Corrected extract');
+  const evidenceSnippets = parseJsonObject(
+    jsonText(correctedExtract.evidence || review.proposal.normalizedExtract.evidence),
+    'Evidence snippets',
+  );
+  return {
+    profileVersionId: review.proposal.profileVersionId || detail.draftVersion?.id || null,
+    correctedExtract,
+    evidenceSnippets,
+    verificationIssues: review.proposal.verification?.issues || [],
+  };
+}
+
 function fileSizeLabel(bytes?: number | null) {
   if (bytes == null || !Number.isFinite(bytes)) return '-';
   if (bytes < 1024) return `${bytes} B`;
@@ -312,6 +405,28 @@ function hasSavedReviewProposal(run: IllustrationExtractionRunSummary) {
   return isRecord(run.metadata) && isRecord(run.metadata.reviewProposal);
 }
 
+function isVerificationReport(value: unknown): value is IllustrationTrainingVerificationReport {
+  return isRecord(value)
+    && typeof value.publishable === 'boolean'
+    && Array.isArray(value.fieldMappings)
+    && Array.isArray(value.requiredFields);
+}
+
+function verificationFromRun(run?: IllustrationExtractionRunSummary | null) {
+  const metadata = isRecord(run?.metadata) ? run.metadata : {};
+  return isVerificationReport(metadata.verification) ? metadata.verification : null;
+}
+
+function latestVerificationForVersion(detail: IllustrationProfileDetail, profileVersionId?: string | null) {
+  if (!profileVersionId) return null;
+  const run = detail.runs.find(item =>
+    item.profileVersionId === profileVersionId
+    && item.runType === 'admin_train'
+    && isVerificationReport(isRecord(item.metadata) ? item.metadata.verification : null)
+  );
+  return verificationFromRun(run);
+}
+
 function latestReviewRun(detail: IllustrationProfileDetail, example: IllustrationTrainingExampleSummary) {
   return detail.runs.find(run =>
     run.trainingExampleId === example.id
@@ -340,6 +455,9 @@ function savedProposalFromRun(detail: IllustrationProfileDetail, example: Illust
     fingerprints: Array.isArray(stored.fingerprints) ? stored.fingerprints as IllustrationTrainingProposal['fingerprints'] : [],
     fieldMappings: Array.isArray(stored.fieldMappings) ? stored.fieldMappings as IllustrationTrainingProposal['fieldMappings'] : [],
     projectionMappings: Array.isArray(stored.projectionMappings) ? stored.projectionMappings as IllustrationTrainingProposal['projectionMappings'] : [],
+    verification: isVerificationReport(stored.verification)
+      ? stored.verification
+      : verificationFromRun(run) || undefined,
     confidence: typeof stored.confidence === 'number' ? stored.confidence : run.extractionConfidence ?? 0,
     issues: Array.isArray(stored.issues) ? stored.issues as IllustrationTrainingProposal['issues'] : [],
   };
@@ -347,6 +465,55 @@ function savedProposalFromRun(detail: IllustrationProfileDetail, example: Illust
 
 function JsonPreview({ value }: { value: unknown }) {
   return <pre className="inventory-json">{jsonText(value)}</pre>;
+}
+
+function VerificationPanel({ verification }: { verification?: IllustrationTrainingVerificationReport | null }) {
+  if (!verification) {
+    return (
+      <section className="verification-panel">
+        <h3>Verification</h3>
+        <div className="empty">No replay verification is available for this training run.</div>
+      </section>
+    );
+  }
+  const requiredRows = verification.fieldMappings.filter(row => verification.requiredFields.includes(row.fieldPath));
+  return (
+    <section className="verification-panel">
+      <div className="panel-head inline-panel-head">
+        <div>
+          <h3>Verification</h3>
+          <p className="muted">{verification.trainingFileName || 'Training PDF'} / {dateTime(verification.verifiedAt)}</p>
+        </div>
+        <StatusBadge value={verification.publishable ? 'ready' : 'needs_review'} />
+      </div>
+      {!verification.publishable && (
+        <div className="error-box compact">This profile is not ready to publish.</div>
+      )}
+      <table className="illustration-review-table verification-table">
+        <thead>
+          <tr>
+            <th>Required field</th>
+            <th>Status</th>
+            <th>Expected</th>
+            <th>Replay</th>
+            <th>Evidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {requiredRows.map((row, index) => (
+            <tr key={`${row.fieldPath}:${index}`} className={row.status !== 'passed' ? 'low-confidence-row' : ''}>
+              <td><strong>{row.fieldPath}</strong></td>
+              <td><StatusBadge value={row.status} /></td>
+              <td><code>{compactJson(row.expectedValue)}</code></td>
+              <td><code>{compactJson(row.replayValue)}</code></td>
+              <td className="text-cell">{row.evidence?.text || row.message || '-'}</td>
+            </tr>
+          ))}
+          {!requiredRows.length && <tr><td colSpan={5}><div className="empty">No required mapping checks found.</div></td></tr>}
+        </tbody>
+      </table>
+    </section>
+  );
 }
 
 function InventorySection({ title, count, children }: { title: string; count: number; children: ReactNode }) {
@@ -581,7 +748,14 @@ export default function IllustrationProfilesView({ data, reload }: { data: Admin
     () => sortedRows(data.illustrationProfiles, sort, illustrationProfileSortAccessors),
     [data.illustrationProfiles, sort],
   );
-  const publishReady = Boolean(detail?.draftVersion && detail.fingerprints.length && detail.fieldMappings.length && !reviewDirty);
+  const draftVerification = detail ? latestVerificationForVersion(detail, detail.draftVersion?.id) : null;
+  const publishReady = Boolean(
+    detail?.draftVersion
+    && detail.fingerprints.length
+    && detail.fieldMappings.length
+    && draftVerification?.publishable
+    && !reviewDirty,
+  );
 
   function sortBy(column: IllustrationProfileSortKey) {
     setSort(current => nextSortState(current, column));
@@ -789,57 +963,55 @@ export default function IllustrationProfilesView({ data, reload }: { data: Admin
     setMessage('');
     setSubmitting('saveReview');
     try {
-      const correctedExtract = parseJsonObject(review.normalizedExtractJson, 'Corrected extract');
-      const evidenceSnippets = parseJsonObject(jsonText(correctedExtract.evidence || review.proposal.normalizedExtract.evidence), 'Evidence snippets');
-      const fingerprints: IllustrationProfileFingerprint[] = review.fingerprints
-        .filter(row => row.include)
-        .map(row => ({
-          fingerprintType: row.fingerprintType,
-          matchStrategy: row.matchStrategy,
-          value: row.value,
-          pageHint: optionalPageHint(row.pageHint),
-          required: row.required,
-          weight: row.weight,
-          confidence: row.confidence,
-          evidenceSnippet: row.evidenceSnippet,
-        }));
-      const fieldMappings: IllustrationProfileFieldMapping[] = review.fieldMappings
-        .filter(row => row.include)
-        .map(row => ({
-          fieldPath: row.fieldPath,
-          sourceStrategy: row.sourceStrategy,
-          sourceSelector: parseJsonObject(row.sourceSelectorJson, `${row.fieldPath} selector`),
-          transformRules: parseJsonObject(row.transformRulesJson, `${row.fieldPath} transform rules`),
-          required: row.required,
-          minConfidence: row.minConfidence,
-          notes: row.notes,
-        }));
-      const projectionMappings: IllustrationProfileProjectionMapping[] = review.projectionMappings
-        .filter(row => row.include)
-        .map(row => ({
-          projectionKey: row.projectionKey,
-          sourceStrategy: row.sourceStrategy,
-          rowSelector: parseJsonObject(row.rowSelectorJson, `${row.projectionKey} row selector`),
-          columnMappings: parseJsonObject(row.columnMappingsJson, `${row.projectionKey} column mappings`),
-          valueMappings: parseJsonObject(row.valueMappingsJson, `${row.projectionKey} value mappings`),
-          transformRules: parseJsonObject(row.transformRulesJson, `${row.projectionKey} transform rules`),
-          required: row.required,
-          minConfidence: row.minConfidence,
-          notes: row.notes,
-        }));
-      const result = await api.correctIllustrationTrainingExample(detail.id, review.exampleId, {
-        profileVersionId: review.proposal.profileVersionId || detail.draftVersion?.id || null,
-        status: 'reviewed',
-        correctedExtract,
-        evidenceSnippets,
-        fingerprints,
-        fieldMappings,
-        projectionMappings,
-      });
+      const result = await api.correctIllustrationTrainingExample(
+        detail.id,
+        review.exampleId,
+        reviewDraftToCorrectionInput(detail, review),
+      );
       setDetail(result.profile);
+      if (result.verification) {
+        setReview(current => current ? {
+          ...current,
+          status: result.verification?.publishable ? 'succeeded' : 'needs_review',
+          proposal: {
+            ...current.proposal,
+            verification: result.verification || undefined,
+          },
+        } : current);
+      }
       setReviewDirty(false);
-      setMessage('Reviewed mappings saved to the draft profile version.');
+      setMessage(result.verification && !result.verification.publishable
+        ? 'Reviewed mappings saved, but required mappings still need replay fixes before publishing.'
+        : 'Reviewed mappings saved to the draft profile version.');
       await reload('', '', search);
+    } catch (err) {
+      setError(messageFromError(err));
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  async function autoFixFailedFields() {
+    if (!detail || !review?.exampleId) return;
+    setError('');
+    setMessage('');
+    setSubmitting('autoFix');
+    try {
+      const result = await api.autoFixIllustrationTrainingMappings(
+        detail.id,
+        review.exampleId,
+        reviewDraftToAutoFixInput(detail, review),
+      );
+      const draft = proposalToReviewDraft(result, 'train');
+      if (result.status === 'failed' || !draft) {
+        setError(result.status === 'failed' ? result.message : 'Could not generate auto-fix mappings.');
+        return;
+      }
+      setReview(draft);
+      setReviewDirty(true);
+      setMessage(result.proposal.verification?.publishable
+        ? 'Auto-fix proposal is ready to review and save.'
+        : 'Auto-fix proposal generated, but required mappings still need review.');
     } catch (err) {
       setError(messageFromError(err));
     } finally {
@@ -871,6 +1043,33 @@ export default function IllustrationProfilesView({ data, reload }: { data: Admin
       await reload('', '', search);
     } catch (err) {
       setError(messageFromError(err));
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  async function deleteProfile() {
+    if (!detail) return;
+    if (!(await confirmDialog({
+      title: 'Delete illustration profile?',
+      message: 'This will permanently delete this illustration profile, including all versions, fingerprints, field mappings, projection mappings, training examples, extraction runs, and carrier logo assets linked to this profile. This action cannot be undone.',
+      confirmLabel: 'Delete profile',
+      cancelLabel: 'Cancel',
+      variant: 'danger',
+    }))) return;
+    setError('');
+    setMessage('');
+    setSubmitting('deleteProfile');
+    try {
+      await api.deleteIllustrationProfile(detail.id);
+      setDetail(null);
+      setReview(null);
+      setReviewDirty(false);
+      setDetailLoading(false);
+      setMessage('Illustration profile deleted.');
+      await reload('', '', search);
+    } catch {
+      setError('Could not delete illustration profile.');
     } finally {
       setSubmitting(null);
     }
@@ -1146,6 +1345,8 @@ export default function IllustrationProfilesView({ data, reload }: { data: Admin
                     </div>
                   )}
 
+                  <VerificationPanel verification={review.proposal.verification} />
+
                   <label className="field-label">Corrected sample output JSON</label>
                   <textarea
                     className="json-area"
@@ -1289,6 +1490,15 @@ export default function IllustrationProfilesView({ data, reload }: { data: Admin
 
                   <div className="dialog-actions">
                     <ActionButton className="ghost-button" type="button" icon="x" onClick={() => { setReview(null); setReviewDirty(false); }}>Clear review</ActionButton>
+                    <ActionButton
+                      className="ghost-button"
+                      type="button"
+                      icon="sync"
+                      onClick={autoFixFailedFields}
+                      disabled={!review.exampleId || review.proposal.verification?.publishable === true || submitting != null}
+                    >
+                      {submitting === 'autoFix' ? 'Auto-fixing...' : 'Auto-fix failed fields with AI'}
+                    </ActionButton>
                     <ActionButton type="button" icon="save" onClick={saveReview} disabled={review.mode !== 'train' || submitting != null}>
                       {submitting === 'saveReview' ? 'Saving...' : 'Save reviewed mappings'}
                     </ActionButton>
@@ -1300,11 +1510,17 @@ export default function IllustrationProfilesView({ data, reload }: { data: Admin
                 <h3>Publish</h3>
                 {!publishReady && (
                   <div className="empty">
-                    Save reviewed fingerprints and field mappings to the draft version before publishing.
+                    Save reviewed fingerprints and replay-verified required mappings to the draft version before publishing.
                   </div>
+                )}
+                {draftVerification && !draftVerification.publishable && (
+                  <VerificationPanel verification={draftVerification} />
                 )}
                 <div className="dialog-actions">
                   <ActionButton className="ghost-button" type="button" icon="refresh" onClick={() => refreshDetail(detail.id)} disabled={submitting != null}>Refresh detail</ActionButton>
+                  <ActionButton className="danger-button" type="button" icon="trash" onClick={deleteProfile} disabled={submitting != null}>
+                    {submitting === 'deleteProfile' ? 'Deleting...' : 'Delete profile'}
+                  </ActionButton>
                   <ActionButton type="button" icon="check" onClick={publishProfile} disabled={!publishReady || submitting != null}>
                     {submitting === 'publish' ? 'Publishing...' : 'Publish profile'}
                   </ActionButton>

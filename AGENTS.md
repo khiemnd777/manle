@@ -42,6 +42,9 @@ Run commands from the package being changed:
 
 ## Working Rules
 
+- Only the user may use "mày-tao" wording. The assistant must not address the user that way and should use "tôi" for itself.
+- Before making changes, provide a plan and wait for the user's review and approval. Do not modify files, commit, push, release, or change production state before approval.
+- For any request involving UI, UX, visual layout, interface behavior, or frontend/admin screens, include a Mockup Text section in the plan so the user can review the proposed UI copy, placement, and interaction before implementation.
 - When a task asks to find, debug, map, or modify a feature under `fe/`, `api/`, or `admin/`, read the package's `AGENT_DIRECTORY.md` first and use its search anchors before broad `rg`.
 - Read `CONTEXT.md` when a task needs MANLE product vocabulary, cross-package contracts, or architecture decisions.
 - Read `fe/AGENTS.md` before changing files under `fe/`.

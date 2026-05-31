@@ -24,6 +24,7 @@ import {
   recordIllustrationExtractionRun,
 } from './illustrations';
 import { matchPublishedIllustrationProfile } from './illustrationMatching';
+import { extractProfileField } from './illustrationMappingEngine';
 import { extractPdfTextLayout } from './pdfExtraction';
 
 type RuntimeInput = {
@@ -456,7 +457,7 @@ function buildExtract(
   const confidences: number[] = [];
 
   for (const mapping of published.fieldMappings) {
-    const result = extractField(mapping, pdf);
+    const result = extractProfileField(mapping, pdf);
     if (!result) {
       if (mapping.required) {
         issues.push(issue('missing_required_field', mapping.fieldPath, `Required mapping ${mapping.fieldPath} did not produce a value.`));

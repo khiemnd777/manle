@@ -2,6 +2,14 @@ import { db, one } from '../db/client';
 import { fail } from '../http/errors';
 import type { Actor } from '../types/admin';
 import {
+  pdfFromTrainingReplaySnapshot,
+  verifyIllustrationTrainingMappings,
+} from './illustrationTrainingVerification';
+import {
+  sanitizeRuntimeFieldMapping,
+  sanitizeRuntimeProjectionMapping,
+} from './illustrationMappingSanitizer';
+import {
   ILLUSTRATION_CONTRACT_SCHEMA_VERSION,
   extractionRunStatusForRuntimeStatus,
   isConfidence,
@@ -10,6 +18,7 @@ import {
   validateIllustrationExtract,
   type CreateIllustrationProfileInput,
   type IllustrationEvidenceSnippet,
+  type IllustrationExtract,
   type IllustrationExtractionRunStatus,
   type IllustrationExtractionRunSummary,
   type IllustrationExtractionRunType,
@@ -124,14 +133,33 @@ function fingerprintStorageKey(fingerprint: IllustrationProfileFingerprint) {
   ].join('\u0000');
 }
 
+function stableRequiredFingerprint(fingerprint: IllustrationProfileFingerprint) {
+  return fingerprint.fingerprintType === 'carrier' || fingerprint.fingerprintType === 'product';
+}
+
+type FingerprintIdentity = {
+  carrier?: string;
+  productName?: string;
+};
+
 export function dedupeIllustrationProfileFingerprintsForStorage(
   fingerprints: IllustrationProfileFingerprint[],
+  identity: FingerprintIdentity = {},
 ): IllustrationProfileFingerprint[] {
   const byStorageKey = new Map<string, IllustrationProfileFingerprint>();
   for (const fingerprint of fingerprints) {
+    const required = stableRequiredFingerprint(fingerprint);
+    const carrierValue = fingerprint.fingerprintType === 'carrier' && identity.carrier
+      ? cleanText(identity.carrier)
+      : null;
+    const productValue = fingerprint.fingerprintType === 'product' && identity.productName
+      ? cleanText(identity.productName)
+      : null;
     const normalized: IllustrationProfileFingerprint = {
       ...fingerprint,
-      value: cleanText(fingerprint.value),
+      matchStrategy: productValue ? 'normalized_contains' : fingerprint.matchStrategy,
+      value: carrierValue || productValue || cleanText(fingerprint.value),
+      required,
       evidenceSnippet: cleanText(fingerprint.evidenceSnippet),
     };
     const key = fingerprintStorageKey(normalized);
@@ -320,30 +348,16 @@ function completeReviewedFieldMappings(
   productType: IllustrationProductType,
   input: Pick<IllustrationTrainingCorrectionInput, 'fieldMappings' | 'correctedExtract' | 'evidenceSnippets'>,
 ) {
-  const mappings = (input.fieldMappings || []).filter(mapping => !isProfileIdentityFieldPath(mapping.fieldPath));
-  const mappedPaths = new Set(mappings.map(mapping => mapping.fieldPath));
-  const candidatePaths = [
-    ...publishRequiredFieldPaths(productType),
-    'client.age',
-    'client.gender',
-    'client.state',
-    'client.riskClass',
-    'policy.monthlyPremium',
-    'policy.premiumMode',
-    'agent.name',
-    'agent.phone',
-  ] as IllustrationFieldPath[];
-
-  for (const fieldPath of candidatePaths) {
-    if (mappedPaths.has(fieldPath) || !hasCorrectedFieldValue(input.correctedExtract, fieldPath)) continue;
-    const fallback = fallbackFieldMapping(productType, fieldPath, evidenceForField(input.correctedExtract, input.evidenceSnippets, fieldPath));
-    if (!fallback) continue;
-    fallback.required = publishRequiredFieldPaths(productType).includes(fieldPath);
-    mappings.push(fallback);
-    mappedPaths.add(fieldPath);
-  }
-
-  assertReviewedMappingsComplete(productType, mappings);
+  const requiredFields = new Set(publishRequiredFieldPaths(productType));
+  const mappings = (input.fieldMappings || [])
+    .filter(mapping => !isProfileIdentityFieldPath(mapping.fieldPath))
+    .map(mapping => {
+      const sanitized = sanitizeRuntimeFieldMapping(mapping);
+      return {
+        ...sanitized,
+        required: requiredFields.has(sanitized.fieldPath),
+      };
+    });
   return mappings;
 }
 
@@ -1082,6 +1096,86 @@ export async function updateIllustrationProfile(actor: Actor, id: string, input:
   return await getIllustrationProfile(id);
 }
 
+export async function deleteIllustrationProfile(actor: Actor, profileId: string): Promise<{ ok: true }> {
+  const sql = db();
+  let metadata: Record<string, unknown> | null = null;
+
+  await sql.begin(async (tx: any) => {
+    const profile = await one<{ id: string; carrier: string; productName: string; productType: IllustrationProductType }>(tx`
+      select id, carrier, product_name as "productName", product_type as "productType"
+      from illustration_profiles
+      where id = ${profileId}
+      limit 1
+    `);
+    if (!profile) fail(404, 'illustration_profile_not_found', 'Illustration profile not found.');
+
+    const counts = await one<{
+      versions: number | string;
+      trainingExamples: number | string;
+      fingerprints: number | string;
+      fieldMappings: number | string;
+      projectionMappings: number | string;
+    }>(tx`
+      select
+        (select count(*) from illustration_profile_versions where profile_id = ${profileId}) as versions,
+        (select count(*) from illustration_training_examples where profile_id = ${profileId}) as "trainingExamples",
+        (select count(*) from illustration_profile_fingerprints where profile_id = ${profileId}) as fingerprints,
+        (select count(*) from illustration_profile_field_mappings where profile_id = ${profileId}) as "fieldMappings",
+        (select count(*) from illustration_profile_projection_mappings where profile_id = ${profileId}) as "projectionMappings"
+    `);
+
+    const deletedRuns = await tx<{ id: string }[]>`
+      delete from illustration_extraction_runs
+      where profile_id = ${profileId}
+        or profile_version_id in (
+          select id
+          from illustration_profile_versions
+          where profile_id = ${profileId}
+        )
+        or training_example_id in (
+          select id
+          from illustration_training_examples
+          where profile_id = ${profileId}
+        )
+      returning id
+    `;
+
+    const deletedProfile = await one<{ id: string }>(tx`
+      delete from illustration_profiles
+      where id = ${profileId}
+      returning id
+    `);
+    if (!deletedProfile) fail(404, 'illustration_profile_not_found', 'Illustration profile not found.');
+
+    const deletedCarrierLogoAssets = await tx<{ id: string }[]>`
+      delete from illustration_carrier_assets asset
+      where lower(asset.carrier) = lower(${profile.carrier})
+        and not exists (
+          select 1
+          from illustration_profiles remaining
+          where lower(remaining.carrier) = lower(asset.carrier)
+        )
+      returning id
+    `;
+
+    metadata = {
+      carrier: profile.carrier,
+      productName: profile.productName,
+      productType: profile.productType,
+      versions: Number(counts?.versions || 0),
+      trainingExamples: Number(counts?.trainingExamples || 0),
+      fingerprints: Number(counts?.fingerprints || 0),
+      fieldMappings: Number(counts?.fieldMappings || 0),
+      projectionMappings: Number(counts?.projectionMappings || 0),
+      extractionRuns: deletedRuns.length,
+      carrierLogoAssets: deletedCarrierLogoAssets.length,
+    };
+  });
+
+  await audit(actor, 'illustration_profile.delete', 'illustration_profile', profileId, metadata || {});
+  return { ok: true };
+}
+
 function cleanCarrierLogoInput(input: UpdateIllustrationCarrierLogoInput) {
   const fileName = cleanText(input.fileName) || 'carrier-logo';
   const mimeType = cleanText(input.mimeType);
@@ -1259,8 +1353,11 @@ export async function publishIllustrationProfileVersion(actor: Actor, profileId:
 export async function validatePublishableIllustrationProfileVersion(profileId: string, profileVersionId: string) {
   await assertProfileVersionBelongsToProfile(profileId, profileVersionId);
   const sql = db();
-  const profile = await one<{ productType: IllustrationProductType }>(sql`
-    select product_type as "productType"
+  const profile = await one<{ carrier: string; productName: string; productType: IllustrationProductType }>(sql`
+    select
+      carrier,
+      product_name as "productName",
+      product_type as "productType"
     from illustration_profiles
     where id = ${profileId}
     limit 1
@@ -1292,6 +1389,25 @@ export async function validatePublishableIllustrationProfileVersion(profileId: s
   const invalidConfidence = [...fingerprints, ...fieldMappings].find(item => !isConfidence(item.confidence ?? item.minConfidence));
   if (invalidConfidence) {
     fail(400, 'publish_validation_failed', 'Fingerprints and mappings must have confidence values between 0 and 1.');
+  }
+
+  const verifiedRun = await one<{ id: string; metadata: JsonObject | null }>(sql`
+    select id, metadata
+    from illustration_extraction_runs
+    where profile_id = ${profileId}
+      and profile_version_id = ${profileVersionId}
+      and run_type = 'admin_train'
+      and training_example_id is not null
+    order by updated_at desc, created_at desc
+    limit 1
+  `);
+  const verification = isRecord(verifiedRun?.metadata) ? verifiedRun.metadata.verification : null;
+  if (!isRecord(verification) || verification.publishable !== true) {
+    fail(
+      400,
+      'publish_validation_failed',
+      'Cannot publish profile because required mappings did not replay successfully on the training PDF.',
+    );
   }
 
   return { ok: true };
@@ -1662,8 +1778,11 @@ export async function replaceIllustrationProfileVersionMappings(
 ) {
   await assertProfileVersionBelongsToProfile(profileId, profileVersionId);
   const sql = db();
-  const profile = await one<{ productType: IllustrationProductType }>(sql`
-    select product_type as "productType"
+  const profile = await one<{ carrier: string; productName: string; productType: IllustrationProductType }>(sql`
+    select
+      carrier,
+      product_name as "productName",
+      product_type as "productType"
     from illustration_profiles
     where id = ${profileId}
     limit 1
@@ -1673,7 +1792,7 @@ export async function replaceIllustrationProfileVersionMappings(
     ? completeReviewedFieldMappings(profile.productType, input)
     : undefined;
   const fingerprints = input.fingerprints
-    ? dedupeIllustrationProfileFingerprintsForStorage(input.fingerprints)
+    ? dedupeIllustrationProfileFingerprintsForStorage(input.fingerprints, profile)
     : undefined;
 
   if (fingerprints) {
@@ -1738,7 +1857,7 @@ export async function replaceIllustrationProfileVersionMappings(
 
   if (input.projectionMappings) {
     await sql`delete from illustration_profile_projection_mappings where profile_id = ${profileId} and profile_version_id = ${profileVersionId}`;
-    for (const mapping of input.projectionMappings) {
+    for (const mapping of input.projectionMappings.map(sanitizeRuntimeProjectionMapping)) {
       await sql`
         insert into illustration_profile_projection_mappings (
           profile_id,
@@ -1788,6 +1907,77 @@ export async function replaceIllustrationProfileVersionMappings(
   });
 }
 
+async function latestTrainingRunForExample(profileId: string, exampleId: string) {
+  const sql = db();
+  return await one<{ id: string; metadata: JsonObject | null }>(sql`
+    select id, metadata
+    from illustration_extraction_runs
+    where profile_id = ${profileId}
+      and training_example_id = ${exampleId}
+      and run_type = 'admin_train'
+    order by created_at desc
+    limit 1
+  `);
+}
+
+async function updateTrainingRunVerification(
+  profileId: string,
+  profileVersionId: string,
+  example: IllustrationTrainingExampleSummary,
+) {
+  const run = await latestTrainingRunForExample(profileId, example.id);
+  const metadata = run?.metadata && typeof run.metadata === 'object' && !Array.isArray(run.metadata)
+    ? run.metadata
+    : {};
+  const pdf = pdfFromTrainingReplaySnapshot((metadata as Record<string, unknown>).trainingPdf);
+  if (!run || !pdf || !example.correctedExtract || !isRecord(example.correctedExtract)) return null;
+
+  const fieldMappings = await listFieldMappingsForVersion(profileVersionId);
+  const verification = verifyIllustrationTrainingMappings(
+    pdf,
+    example.correctedExtract as IllustrationExtract,
+    fieldMappings,
+  );
+  const reviewProposal = isRecord((metadata as Record<string, unknown>).reviewProposal)
+    ? {
+        ...((metadata as Record<string, unknown>).reviewProposal as Record<string, unknown>),
+        normalizedExtract: example.correctedExtract,
+        fieldMappings,
+        verification,
+      }
+    : undefined;
+
+  await updateIllustrationExtractionRun(run.id, {
+    status: verification.publishable ? 'succeeded' : 'needs_review',
+    normalizedExtract: example.correctedExtract,
+    evidenceSnippets: example.evidenceSnippets,
+    metadata: {
+      ...metadata,
+      verification,
+      ...(reviewProposal ? { reviewProposal } : {}),
+    },
+  });
+  return verification;
+}
+
+export async function getIllustrationTrainingReplayContext(profileId: string, exampleId: string) {
+  const example = await getTrainingExampleForProfile(profileId, exampleId);
+  const run = await latestTrainingRunForExample(profileId, exampleId);
+  const metadata = run?.metadata && typeof run.metadata === 'object' && !Array.isArray(run.metadata)
+    ? run.metadata
+    : {};
+  const pdf = pdfFromTrainingReplaySnapshot((metadata as Record<string, unknown>).trainingPdf);
+  if (!run || !pdf) {
+    fail(400, 'training_replay_unavailable', 'Training PDF replay data is not available. Run Train sample again.');
+  }
+  return {
+    example,
+    runId: run.id,
+    metadata,
+    pdf,
+  };
+}
+
 export async function applyIllustrationTrainingCorrection(
   actor: Actor,
   profileId: string,
@@ -1804,9 +1994,13 @@ export async function applyIllustrationTrainingCorrection(
     profileVersionId,
     status: input.status || 'reviewed',
   });
+  const verification = input.fieldMappings
+    ? await updateTrainingRunVerification(profileId, profileVersionId, example)
+    : null;
   return {
     example,
     profile: await getIllustrationProfile(profileId),
+    verification,
   };
 }
 

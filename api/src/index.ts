@@ -58,8 +58,10 @@ import {
   applyIllustrationTrainingCorrection,
   clearIllustrationCarrierLogo,
   createIllustrationProfile,
+  deleteIllustrationProfile,
   ensureDraftIllustrationProfileVersion,
   getIllustrationProfile,
+  getIllustrationTrainingReplayContext,
   listIllustrationProfiles,
   publishIllustrationProfileVersion,
   recordIllustrationExtractionRun,
@@ -76,6 +78,10 @@ import {
   invalidRuntimeIllustrationUpload,
   requireRuntimePdfFile,
 } from './services/illustrationRuntimeExtraction';
+import {
+  replaySnapshotJson,
+  verifyIllustrationTrainingMappings,
+} from './services/illustrationTrainingVerification';
 import {
   deleteEmailTemplate,
   getEmailSettings,
@@ -96,7 +102,12 @@ import {
   updatePaddleSettings,
 } from './services/paddle';
 import { rateLimit } from './services/redis';
-import type { IllustrationRuntimeErrorCode } from './types/illustration';
+import type {
+  IllustrationRuntimeErrorCode,
+  IllustrationExtract,
+  IllustrationEvidenceSnippet,
+  JsonObject,
+} from './types/illustration';
 
 function pathParts(url: URL) {
   return url.pathname.split('/').filter(Boolean);
@@ -331,8 +342,18 @@ async function runAdminTrainingExtraction(actor: any, profileId: string, request
   }
 
   result.proposal.runId = run.id;
+  const verification = verifyIllustrationTrainingMappings(
+    pdf,
+    result.proposal.normalizedExtract,
+    result.proposal.fieldMappings,
+  );
+  result.proposal.verification = verification;
+  const verifiedStatus = result.status === 'succeeded' && verification.publishable ? 'succeeded' : 'needs_review';
+  const verifiedMessage = verification.publishable
+    ? result.message
+    : 'OpenAI returned a structured proposal, but required mappings must replay successfully before publishing.';
   const updatedRun = await updateIllustrationExtractionRun(run.id, {
-    status: result.status === 'succeeded' ? 'succeeded' : 'needs_review',
+    status: verifiedStatus,
     modelProvider: result.proposal.modelProvider,
     modelName: result.proposal.modelName,
     extractionConfidence: result.proposal.confidence,
@@ -346,6 +367,8 @@ async function runAdminTrainingExtraction(actor: any, profileId: string, request
       fieldMappingCount: result.proposal.fieldMappings.length,
       projectionMappingCount: result.proposal.projectionMappings.length,
       issueCount: result.proposal.issues.length,
+      verification,
+      trainingPdf: replaySnapshotJson(pdf),
       reviewProposal: result.proposal,
     },
   });
@@ -358,10 +381,133 @@ async function runAdminTrainingExtraction(actor: any, profileId: string, request
   await audit(actor, `illustration_profile.${runType}`, 'illustration_profile', profileId, {
     profileVersionId: version.id,
     runId: run.id,
-    status: result.status,
+    status: verifiedStatus,
     exampleId: example?.id,
+    verificationPublishable: verification.publishable,
   });
-  return { ...result, example, run: updatedRun };
+  return {
+    ...result,
+    status: verifiedStatus,
+    message: verifiedMessage,
+    proposal: result.proposal,
+    example,
+    run: updatedRun,
+  };
+}
+
+type IllustrationTrainingAutoFixInput = {
+  profileVersionId?: string | null;
+  correctedExtract?: IllustrationExtract | JsonObject;
+  evidenceSnippets?: Record<string, IllustrationEvidenceSnippet> | JsonObject;
+  verificationIssues?: Array<{ path?: unknown; message?: unknown }>;
+};
+
+function nonEmptyRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0);
+}
+
+function compactVerificationIssues(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((issue: any) => ({
+        path: String(issue?.path || ''),
+        message: String(issue?.message || ''),
+      })).filter(issue => issue.path || issue.message)
+    : [];
+}
+
+async function autoFixAdminTrainingMappings(
+  actor: any,
+  profileId: string,
+  exampleId: string,
+  input: IllustrationTrainingAutoFixInput = {},
+) {
+  const profile = await getIllustrationProfile(profileId);
+  const context = await getIllustrationTrainingReplayContext(profileId, exampleId);
+  const metadata = context.metadata as Record<string, any>;
+  const expectedExtract = nonEmptyRecord(input.correctedExtract)
+    ? input.correctedExtract
+    : nonEmptyRecord(context.example.correctedExtract)
+      ? context.example.correctedExtract
+      : undefined;
+  const bodyVerificationIssues = compactVerificationIssues(input.verificationIssues);
+  const verificationIssues = bodyVerificationIssues.length
+    ? bodyVerificationIssues
+    : compactVerificationIssues(metadata.verification?.issues);
+  const result = await generateIllustrationTrainingProposal({
+    profileId,
+    profileVersionId: context.example.profileVersionId || profile.draftVersion?.id || undefined,
+    exampleId,
+    carrier: profile.carrier,
+    productName: profile.productName,
+    productType: profile.productType,
+    pdf: context.pdf,
+    expectedExtract: expectedExtract as any,
+    verificationIssues,
+  });
+
+  if (result.status === 'failed') {
+    const updatedRun = await updateIllustrationExtractionRun(context.runId, {
+      status: 'failed',
+      errorCode: result.code,
+      errorMessage: result.message,
+      metadata: {
+        ...metadata,
+        autoFixFailedAt: new Date().toISOString(),
+      },
+    });
+    await audit(actor, 'illustration_profile.auto_fix_mappings', 'illustration_profile', profileId, {
+      profileVersionId: context.example.profileVersionId,
+      runId: context.runId,
+      status: result.status,
+      exampleId,
+    });
+    return { ...result, example: context.example, run: updatedRun };
+  }
+
+  result.proposal.runId = context.runId;
+  result.proposal.exampleId = exampleId;
+  if (expectedExtract) {
+    result.proposal.normalizedExtract = expectedExtract as any;
+  }
+  const verification = verifyIllustrationTrainingMappings(
+    context.pdf,
+    result.proposal.normalizedExtract,
+    result.proposal.fieldMappings,
+  );
+  result.proposal.verification = verification;
+  const verifiedStatus = result.status === 'succeeded' && verification.publishable ? 'succeeded' : 'needs_review';
+  const verifiedMessage = verification.publishable
+    ? result.message
+    : 'OpenAI returned an auto-fix proposal, but required mappings still need replay fixes before publishing.';
+  const updatedRun = await updateIllustrationExtractionRun(context.runId, {
+    status: verifiedStatus,
+    modelProvider: result.proposal.modelProvider,
+    modelName: result.proposal.modelName,
+    extractionConfidence: result.proposal.confidence,
+    normalizedExtract: result.proposal.normalizedExtract,
+    evidenceSnippets: result.proposal.normalizedExtract.evidence,
+    metadata: {
+      ...metadata,
+      verification,
+      autoFixedAt: new Date().toISOString(),
+      reviewProposal: result.proposal,
+    },
+  });
+  await audit(actor, 'illustration_profile.auto_fix_mappings', 'illustration_profile', profileId, {
+    profileVersionId: context.example.profileVersionId,
+    runId: context.runId,
+    status: verifiedStatus,
+    exampleId,
+    verificationPublishable: verification.publishable,
+  });
+  return {
+    ...result,
+    status: verifiedStatus,
+    message: verifiedMessage,
+    proposal: result.proposal,
+    example: context.example,
+    run: updatedRun,
+  };
 }
 
 function runtimeUploadErrorCode(code: string): IllustrationRuntimeErrorCode | null {
@@ -642,6 +788,10 @@ async function route(request: Request) {
     return json(request, { profile: await getIllustrationProfile(illustrationProfileId) });
   }
 
+  if (illustrationProfileId && request.method === 'DELETE') {
+    return json(request, await deleteIllustrationProfile(actor, illustrationProfileId));
+  }
+
   if (
     parts.length === 5 &&
     parts[0] === 'api' &&
@@ -684,6 +834,21 @@ async function route(request: Request) {
     request.method === 'PATCH'
   ) {
     return json(request, await applyIllustrationTrainingCorrection(actor, parts[3], parts[5], await readJson(request)));
+  }
+
+  if (
+    parts.length === 7 &&
+    parts[0] === 'api' &&
+    parts[1] === 'admin' &&
+    parts[2] === 'illustration-profiles' &&
+    parts[4] === 'examples' &&
+    parts[6] === 'auto-fix' &&
+    request.method === 'POST'
+  ) {
+    return json(
+      request,
+      await autoFixAdminTrainingMappings(actor, parts[3], parts[5], await readJson<IllustrationTrainingAutoFixInput>(request)),
+    );
   }
 
   if (
@@ -845,6 +1010,7 @@ async function route(request: Request) {
 Bun.serve({
   hostname: config.host,
   port: config.port,
+  idleTimeout: config.requestIdleTimeoutSeconds,
   async fetch(request) {
     try {
       return await route(request);
