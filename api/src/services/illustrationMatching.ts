@@ -28,6 +28,12 @@ function normalizeCompact(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
+export function textContainsFingerprintValue(text: string, value: string) {
+  const needle = normalizeText(value);
+  if (!needle) return false;
+  return normalizeText(text).includes(needle);
+}
+
 function pageText(pdf: PdfExtractionResult, pageHint?: number | null) {
   if (!pageHint) return pdf.text;
   return pdf.pages.find(page => page.page === pageHint)?.text || '';
@@ -65,15 +71,27 @@ function pageForOffset(pdf: PdfExtractionResult, targetText: string, index: numb
   return null;
 }
 
+function evidenceIndexForContains(text: string, value: string) {
+  const haystack = text.toLowerCase();
+  const rawIndex = haystack.indexOf(value.toLowerCase());
+  if (rawIndex >= 0) return rawIndex;
+
+  const firstToken = normalizeText(value)
+    .split(' ')
+    .find(token => token.length >= 3);
+  if (!firstToken) return 0;
+
+  const tokenIndex = haystack.indexOf(firstToken);
+  return tokenIndex >= 0 ? tokenIndex : 0;
+}
+
 function evaluateContains(
   fingerprint: IllustrationProfileFingerprint,
   pdf: PdfExtractionResult,
   text: string,
 ): FingerprintEvaluation {
-  const haystack = text.toLowerCase();
-  const needle = fingerprint.value.toLowerCase();
-  const index = haystack.indexOf(needle);
-  if (index < 0) return { fingerprint, matched: false };
+  if (!textContainsFingerprintValue(text, fingerprint.value)) return { fingerprint, matched: false };
+  const index = evidenceIndexForContains(text, fingerprint.value);
   return {
     fingerprint,
     matched: true,
