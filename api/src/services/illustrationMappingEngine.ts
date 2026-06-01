@@ -28,6 +28,7 @@ const numericFieldPaths = new Set<IllustrationFieldPath>([
   'client.age',
   'policy.faceAmount',
   'policy.monthlyPremium',
+  'policy.illustratedRate',
   'policy.payYears',
   'policy.termLength',
   'projections[].year',

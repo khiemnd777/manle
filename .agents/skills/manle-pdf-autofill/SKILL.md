@@ -49,8 +49,10 @@ Keep each responsibility in the existing function unless there is a clear reason
 
 ## Tabular Detail Rules
 
-- Tabular rows are used to populate exact `state.actualCSV`, `state.actualPVMap`, and `state.actualDBMap` maps by age.
-- When valid tabular rows are extracted, set the non-guaranteed rate field to `7.25`.
+- Tabular rows are used to populate exact `state.actualCSV`, `state.actualPVMap`, `state.actualDBMap`, and `state.actualYearMap` maps by age.
+- When valid tabular rows are extracted, keep the full row set in the PDF-derived maps. Only the rendered `state.ages` list may be reduced to policy-year milestones.
+- The non-guaranteed rate field should come from a mapped `policy.illustratedRate` value or user input. Do not hard-code a carrier/product rate.
+- For long annual projection tables, render milestone rows using policy duration, not customer-specific ages: first row, years 5/10/15/20/25/30, pay-years and pay-years + 1 when available, each 10 years after year 30, and the final row. Use only rows that exist in the PDF; do not interpolate.
 - If no rows are extracted, clear PDF-derived maps rather than keeping stale data.
 - Treat duplicate bold-rendered rows as duplicates and dedupe by year.
 - Death benefit sanity checks should remain conservative.

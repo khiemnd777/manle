@@ -268,6 +268,37 @@ test('label_value mappings tolerate punctuation differences between selector lab
   expect(report.issues).toHaveLength(0);
 });
 
+test('illustrated rate mappings replay visible PDF percentages without hardcoded defaults', () => {
+  const report = verifyIllustrationTrainingMappings(
+    pdf([
+      'Designed For: Cindy Ngoc Phuong',
+      'Initial Face Amount: $220,000',
+      'Initial Monthly Premium: $300.00',
+      'GUARANTEED PROJECTIONS ALTERNATE PROJECTIONS CURRENT PROJECTIONS Interest Rate 0.75% Interest Rate 3.50% Interest Rate 7.80%',
+    ].join('\n')),
+    {
+      ...extract(),
+      policy: {
+        faceAmount: 220000,
+        monthlyPremium: 300,
+        illustratedRate: 7.8,
+      },
+    },
+    [
+      mapping('client.fullName', { regex: 'Designed For:\\s*(?<value>[^\\n]+)' }),
+      mapping('policy.faceAmount', { regex: 'Initial Face Amount:\\s*(?<value>\\$?\\d[\\d,]*(?:\\.\\d+)?)' }, { currency: true }),
+      mapping('policy.monthlyPremium', { regex: 'Initial Monthly Premium:\\s*(?<value>\\$?\\d[\\d,]*(?:\\.\\d+)?)' }, { currency: true }),
+      mapping('policy.illustratedRate', {
+        regex: 'Current Projections[\\s\\S]{0,180}?(?:Interest Rate\\s+\\d+(?:\\.\\d+)?%\\s+){2}Interest Rate\\s+(?<value>\\d+(?:\\.\\d+)?)\\s*%|(?:Illustrated Rates?|Interest Rate):?\\s*(\\d+(?:\\.\\d+)?)\\s*%',
+      }, { percent: true }),
+    ],
+  );
+
+  expect(report.publishable).toBe(true);
+  expect(report.issues).toHaveLength(0);
+  expect(report.fieldMappings.find(row => row.fieldPath === 'policy.illustratedRate')?.replayValue).toBe(7.8);
+});
+
 test('label_value mappings ignore literal selector values instead of hardcoding extracted answers', () => {
   const report = verifyIllustrationTrainingMappings(
     pdf([

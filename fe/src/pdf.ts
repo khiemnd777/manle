@@ -174,7 +174,7 @@ function runtimeCarrierLogoUrl(payload: any) {
 function finiteNumber(value: unknown) {
   if (value == null) return undefined;
   if (typeof value === 'string') {
-    const cleaned = value.trim().replace(/[$,\s]/g, '');
+    const cleaned = value.trim().replace(/[$,%\s]/g, '');
     if (!cleaned) return undefined;
     const numeric = Number(cleaned);
     return Number.isFinite(numeric) ? numeric : undefined;
@@ -236,6 +236,7 @@ function runtimeExtractToAutofill(extract: any) {
       riskClass: client.riskClass,
       face: policy.faceAmount,
       monthlyPrem: policy.monthlyPremium,
+      illustratedRate: finiteNumber(policy.illustratedRate),
       payYears: policy.payYears,
       termLength: policy.termLength,
       agentName: agent.name,
@@ -252,6 +253,18 @@ function projectionMap(rows: any[], key: 'cashSurrenderValue' | 'policyValue' | 
   return entries.length > 0 ? new Map(entries) : null;
 }
 
+function projectionYearMap(rows: any[]) {
+  const entries = rows
+    .map(row => [finiteNumber(row.age), finiteNumber(row.year)] as [number | undefined, number | undefined])
+    .filter(([age, year]) =>
+      Number.isFinite(age) && Number.isFinite(year) &&
+      age! > 0 && age! <= 121 &&
+      year! > 0
+    )
+    .map(([age, year]) => [age!, year!] as [number, number]);
+  return entries.length > 0 ? new Map(entries) : null;
+}
+
 function projectionAges(rows: any[]) {
   return Array.from(new Set(
     rows
@@ -260,20 +273,73 @@ function projectionAges(rows: any[]) {
   )).sort((a: number, b: number) => a - b);
 }
 
-function applyRuntimeProjectionRows(rows: any[], productType) {
-  state.actualCSV = state.actualPVMap = state.actualDBMap = null;
-  if (productType === 'term' || rows.length === 0) return 0;
+function projectionMilestoneAges(rows: any[], payYears?: unknown) {
+  const rowsByYear = new Map<number, number>();
+  const rowsWithoutYear: number[] = [];
 
-  const ages = projectionAges(rows);
-  if (ages.length === 0) return 0;
+  rows.forEach((row) => {
+    const age = finiteNumber(row.age);
+    if (!Number.isFinite(age) || age <= 0 || age > 121) return;
+    const year = finiteNumber(row.year);
+    if (Number.isFinite(year) && year > 0) {
+      if (!rowsByYear.has(year)) rowsByYear.set(year, age);
+    } else {
+      rowsWithoutYear.push(age);
+    }
+  });
+
+  if (rowsWithoutYear.length > 0 && rowsByYear.size === 0) {
+    return projectionAges(rows);
+  }
+
+  const sortedYears = Array.from(rowsByYear.keys()).sort((a, b) => a - b);
+  if (sortedYears.length <= 12) {
+    return Array.from(new Set(sortedYears.map(year => rowsByYear.get(year)!))).sort((a, b) => a - b);
+  }
+
+  const lastYear = sortedYears[sortedYears.length - 1];
+  const targets = new Set<number>([sortedYears[0], lastYear]);
+  [5, 10, 15, 20, 25, 30].forEach(year => targets.add(year));
+
+  const normalizedPayYears = finiteNumber(payYears);
+  if (Number.isFinite(normalizedPayYears) && normalizedPayYears > 0) {
+    targets.add(Math.round(normalizedPayYears));
+    targets.add(Math.round(normalizedPayYears) + 1);
+  }
+
+  for (let year = 40; year < lastYear; year += 10) {
+    targets.add(year);
+  }
+
+  const selectedAges = Array.from(targets)
+    .sort((a, b) => a - b)
+    .map(targetYear => {
+      const exact = rowsByYear.get(targetYear);
+      if (exact != null) return exact;
+      const nextYear = sortedYears.find(year => year >= targetYear);
+      return nextYear == null ? undefined : rowsByYear.get(nextYear);
+    })
+    .filter((age): age is number => Number.isFinite(age));
+
+  return Array.from(new Set(selectedAges)).sort((a, b) => a - b);
+}
+
+function applyRuntimeProjectionRows(rows: any[], productType) {
+  state.actualCSV = state.actualPVMap = state.actualDBMap = state.actualYearMap = null;
+  if (productType === 'term' || rows.length === 0) return { extractedCount: 0, renderedCount: 0 };
+
+  const allAges = projectionAges(rows);
+  const ages = projectionMilestoneAges(rows, $('premYears')?.value);
+  if (ages.length === 0) return { extractedCount: 0, renderedCount: 0 };
 
   state.actualCSV = projectionMap(rows, 'cashSurrenderValue');
   state.actualPVMap = projectionMap(rows, 'policyValue');
   state.actualDBMap = projectionMap(rows, 'deathBenefit');
+  state.actualYearMap = projectionYearMap(rows);
   state.ages = ages;
-  // Approved IUL projection mappings represent illustrated current values.
-  $('rate').value = '7.25';
-  return ages.length;
+  // Projection rows carry exact PDF values; the displayed rate comes from a
+  // separate policy.illustratedRate field mapping or the user's selected rate.
+  return { extractedCount: allAges.length, renderedCount: ages.length };
 }
 
 // Pull text from first N pages of a PDF
@@ -332,7 +398,7 @@ export async function extractPdfData(file, maxPages = 40) {
         const age  = nums[1];
         if (isNaN(year) || isNaN(age) || year < 1 || year > 110 || age < 0 || age > 130) continue;
 
-        // Last 3 numeric values = PV / CSV / DB at 7.25% Current rate
+        // Last 3 numeric values = PV / CSV / DB under the PDF current rate
         const pv  = nums[nums.length - 3];
         const csv = nums[nums.length - 2];
         const db  = nums[nums.length - 1];
@@ -440,6 +506,10 @@ export function parsePdfText(text) {
   // Death Benefit Option
   m = t.match(/(?:Initial )?Death Benefit Option:?\s*(Level|Increasing|Graded)/i);
   if (m) out.dbo = m[1];
+
+  // Illustrated/current interest rate for IUL projections.
+  m = t.match(/Current Projections[\s\S]{0,180}?(?:Interest Rate\s+\d+(?:\.\d+)?%\s+){2}Interest Rate\s+(\d+(?:\.\d+)?)\s*%|(?:Illustrated Rates?|Interest Rate):?\s*(\d+(?:\.\d+)?)\s*%/i);
+  if (m) out.illustratedRate = parseFloat(m[1] || m[2]);
 
   // ---- Product type detection (IUL vs Term Life) ----
   // Term Life Trendsetter® LB has very different markers from IUL
@@ -613,6 +683,12 @@ export function applyExtracted(data: any, targetTab, sourceTab = targetTab) {
     filled.push('Pay Years');
   }
 
+  const illustratedRate = finiteNumber(data.illustratedRate);
+  if (illustratedRate && illustratedRate > 0 && !isTermUpload) {
+    $('rate').value = illustratedRate.toFixed(2);
+    filled.push(`Rate ${illustratedRate.toFixed(2)}%`);
+  }
+
   if (data.termLength && isTermUpload) {
     if ($('termLength')) {
       $('termLength').value = data.termLength;
@@ -675,8 +751,13 @@ export async function handlePdfUpload(file, forTab) {
     }
 
     const filled = applyExtracted(merged, productType, sourceTab);
-    const projectionRowCount = applyRuntimeProjectionRows(extractedRows, productType);
-    if (projectionRowCount > 0) filled.push(`${projectionRowCount} projection rows`);
+    const projectionRows = applyRuntimeProjectionRows(extractedRows, productType);
+    if (projectionRows.renderedCount > 0) {
+      const projectionLabel = projectionRows.extractedCount === projectionRows.renderedCount
+        ? `${projectionRows.renderedCount} projection rows`
+        : `${projectionRows.extractedCount} projection rows (${projectionRows.renderedCount} displayed)`;
+      filled.push(projectionLabel);
+    }
 
     // Update UI
     showUploadParsed(ui, file);

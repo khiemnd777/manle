@@ -51,6 +51,7 @@ const numericFieldPaths = new Set<IllustrationFieldPath>([
   'client.age',
   'policy.faceAmount',
   'policy.monthlyPremium',
+  'policy.illustratedRate',
   'policy.payYears',
   'policy.termLength',
   'projections[].year',
@@ -352,6 +353,9 @@ function assignExtractValue(extract: IllustrationExtract, result: FieldExtractio
       break;
     case 'policy.premiumMode':
       if (value === 'monthly' || value === 'annual' || value === 'quarterly') extract.policy.premiumMode = value;
+      break;
+    case 'policy.illustratedRate':
+      if (typeof value === 'number') extract.policy.illustratedRate = value;
       break;
     case 'policy.payYears':
       if (typeof value === 'number') extract.policy.payYears = value;

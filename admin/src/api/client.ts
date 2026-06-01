@@ -192,6 +192,7 @@ export type IllustrationFieldPath =
   | 'policy.faceAmount'
   | 'policy.monthlyPremium'
   | 'policy.premiumMode'
+  | 'policy.illustratedRate'
   | 'policy.payYears'
   | 'policy.termLength'
   | 'agent.name'
@@ -229,6 +230,7 @@ export type IllustrationExtract = {
     faceAmount?: number;
     monthlyPremium?: number;
     premiumMode?: 'monthly' | 'annual' | 'quarterly';
+    illustratedRate?: number;
     payYears?: number;
     termLength?: number;
   };

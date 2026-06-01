@@ -5,6 +5,7 @@ export const state = {
   actualCSV: null,        // Map<age, csv> — populated when PDF parsed
   actualPVMap: null,      // Map<age, policyValue>
   actualDBMap: null,      // Map<age, deathBenefit>
+  actualYearMap: null,    // Map<age, projectionYear>
   agents: [               // List of agents shown in footer (shared by both cards)
     { name: 'Kevin Le', phone: '' }
   ],

@@ -117,6 +117,7 @@ const fieldPathOptions: IllustrationFieldPath[] = [
   'policy.faceAmount',
   'policy.monthlyPremium',
   'policy.premiumMode',
+  'policy.illustratedRate',
   'policy.payYears',
   'policy.termLength',
   'agent.name',
@@ -225,6 +226,7 @@ function fieldValue(proposal: IllustrationTrainingProposal, path: IllustrationFi
     case 'policy.faceAmount': return extract.policy.faceAmount;
     case 'policy.monthlyPremium': return extract.policy.monthlyPremium;
     case 'policy.premiumMode': return extract.policy.premiumMode;
+    case 'policy.illustratedRate': return extract.policy.illustratedRate;
     case 'policy.payYears': return extract.policy.payYears;
     case 'policy.termLength': return extract.policy.termLength;
     case 'agent.name': return extract.agent?.name;

@@ -172,7 +172,9 @@ export function render() {
   const cvRows = $('cvRows');
   cvRows.innerHTML = '';
   ages.forEach((projAge, idx) => {
-    const yrFromNow = projAge - age;
+    const yrFromNow = (state.actualYearMap && state.actualYearMap.has(projAge))
+      ? state.actualYearMap.get(projAge)
+      : projAge - age;
     const csv = getCSV(projAge, [annualPrem, yPrem, age, gender, projAge, rate, face, dragTune]);
     // Death Benefit: PDF-extracted value if available, otherwise face amount (Level DBO)
     const db = (state.actualDBMap && state.actualDBMap.has(projAge))

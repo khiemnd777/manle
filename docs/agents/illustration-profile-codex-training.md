@@ -138,6 +138,7 @@ Supported field paths are defined in `IllustrationFieldPath`:
 - `policy.faceAmount`
 - `policy.monthlyPremium`
 - `policy.premiumMode`
+- `policy.illustratedRate`
 - `policy.payYears`
 - `policy.termLength`
 - `agent.name`
@@ -153,6 +154,12 @@ Mapping guidance:
   convention and are not present in PDF text.
 - Currency fields need `{"currency":true}` when extraction could include `$`,
   commas, or labels.
+- Illustrated/current rate fields need `{"percent":true}` and must capture the
+  visible PDF percentage, such as `7.80%`. Do not hard-code carrier/product
+  rate defaults in mappings, code, or migrations.
+- When a projection header shows guaranteed, alternate, and current rates in one
+  text line, map the rate under `CURRENT PROJECTIONS`; do not capture the first
+  `Interest Rate` value in that row.
 - Gender fields need `{"gender":true}` when source text can be `Male/Female`.
 - Phone fields need `{"phone":true}`.
 

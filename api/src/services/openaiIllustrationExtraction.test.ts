@@ -134,7 +134,14 @@ test('materializes missing scalar extract fields from OpenAI evidence field path
         fieldPath: 'policy.premiumMode',
         source: 'pdf_text',
       },
-      'policy.payYears:8': {
+      'policy.illustratedRate:8': {
+        page: 6,
+        text: 'GUARANTEED PROJECTIONS ALTERNATE PROJECTIONS CURRENT PROJECTIONS Interest Rate 0.75% Interest Rate 3.50% Interest Rate 7.80%',
+        confidence: 0.98,
+        fieldPath: 'policy.illustratedRate',
+        source: 'pdf_text',
+      },
+      'policy.payYears:9': {
         page: 1,
         text: '20 Pay',
         confidence: 0.95,
@@ -156,6 +163,7 @@ test('materializes missing scalar extract fields from OpenAI evidence field path
     faceAmount: 1000000,
     monthlyPremium: 637,
     premiumMode: 'monthly',
+    illustratedRate: 7.8,
     payYears: 20,
   });
 });

@@ -93,6 +93,7 @@ type GeneratedTrainingOutput = {
     faceAmount: NullableNumber;
     monthlyPremium: NullableNumber;
     premiumMode: 'monthly' | 'annual' | 'quarterly' | null;
+    illustratedRate: NullableNumber;
     payYears: NullableNumber;
     termLength: NullableNumber;
   };
@@ -183,6 +184,7 @@ const fieldPathEnum: IllustrationFieldPath[] = [
   'policy.faceAmount',
   'policy.monthlyPremium',
   'policy.premiumMode',
+  'policy.illustratedRate',
   'policy.payYears',
   'policy.termLength',
   'agent.name',
@@ -264,11 +266,12 @@ const trainingOutputSchema = {
     policy: {
       type: 'object',
       additionalProperties: false,
-      required: ['faceAmount', 'monthlyPremium', 'premiumMode', 'payYears', 'termLength'],
+      required: ['faceAmount', 'monthlyPremium', 'premiumMode', 'illustratedRate', 'payYears', 'termLength'],
       properties: {
         faceAmount: nullableNumber(),
         monthlyPremium: nullableNumber(),
         premiumMode: { anyOf: [{ type: 'string', enum: ['monthly', 'annual', 'quarterly'] }, { type: 'null' }] },
+        illustratedRate: nullableNumber(),
         payYears: nullableNumber(),
         termLength: nullableNumber(),
       },
@@ -433,6 +436,7 @@ function trainingPrompt(input: OpenAIIllustrationTrainingInput) {
     'Every sourceSelector, rowSelector, columnMappings, and valueMappings regex must be a non-empty reusable regex. Do not return null or empty regex.',
     'Every field mapping regex must capture the extracted value with a named group (?<value>...) or a first capture group. Do not rely on label-only extraction.',
     'For money, premium, face amount, cash value, surrender value, death benefit, pay years, term length, age, and projection numbers, regex must capture only the numeric/value token, not unrelated nearby numbers.',
+    'For IUL illustrated/current interest rates, use policy.illustratedRate with transformRules.percent=true and capture the visible percent value from the PDF. Do not assume or hard-code a default rate.',
     'Always include runtime field mappings for client.fullName, policy.faceAmount, and the required product premium field: policy.monthlyPremium for IUL or policy.termLength for Term.',
     'For label/value pairs, use the exact reusable label text visible in the PDF. If the value is before the label, set sourceSelector.valuePosition to "before"; if the value is after the label or on the next line, set it to "after".',
     'Do not put extracted answers, applicant names, dollar amounts, ages, dates, or phone numbers in sourceSelector.value for client, policy, or agent field mappings. Use value only for constant/manual mappings.',
@@ -590,6 +594,7 @@ const scalarEvidenceFieldPaths: IllustrationFieldPath[] = [
   'policy.faceAmount',
   'policy.monthlyPremium',
   'policy.premiumMode',
+  'policy.illustratedRate',
   'policy.payYears',
   'policy.termLength',
   'agent.name',
@@ -622,6 +627,7 @@ function evidenceValueCandidates(text: string) {
 function evidenceTransformsForFieldPath(fieldPath: IllustrationFieldPath): JsonObject {
   if (fieldPath === 'client.gender') return { gender: true };
   if (fieldPath === 'agent.phone') return { phone: true };
+  if (fieldPath === 'policy.illustratedRate') return { percent: true };
   if (
     fieldPath === 'policy.faceAmount'
     || fieldPath === 'policy.monthlyPremium'
@@ -659,6 +665,8 @@ function hasScalarExtractValue(extract: IllustrationExtract, fieldPath: Illustra
       return typeof extract.policy.monthlyPremium === 'number' && Number.isFinite(extract.policy.monthlyPremium) && extract.policy.monthlyPremium > 0;
     case 'policy.premiumMode':
       return isIllustrationPremiumMode(extract.policy.premiumMode);
+    case 'policy.illustratedRate':
+      return typeof extract.policy.illustratedRate === 'number' && Number.isFinite(extract.policy.illustratedRate) && extract.policy.illustratedRate > 0;
     case 'policy.payYears':
       return typeof extract.policy.payYears === 'number' && Number.isFinite(extract.policy.payYears) && extract.policy.payYears > 0;
     case 'policy.termLength':
@@ -683,6 +691,11 @@ function validMaterializedScalar(fieldPath: IllustrationFieldPath, value: string
 
 function materializedScalarFromEvidence(fieldPath: IllustrationFieldPath, text: string) {
   for (const candidate of evidenceValueCandidates(text)) {
+    if (fieldPath === 'policy.illustratedRate') {
+      const currentRate = candidate.match(/Current Projections[\s\S]{0,180}?(?:Interest Rate\s+\d+(?:\.\d+)?%\s+){2}Interest Rate\s+(\d+(?:\.\d+)?)\s*%/i);
+      const currentRateValue = currentRate ? parseMappingNumber(currentRate[1]) : undefined;
+      if (validMaterializedScalar(fieldPath, currentRateValue)) return currentRateValue;
+    }
     const value = normalizeFieldValue(fieldPath, candidate, evidenceTransformsForFieldPath(fieldPath));
     if (validMaterializedScalar(fieldPath, value)) return value;
   }
@@ -727,6 +740,9 @@ function setScalarExtractValue(
       break;
     case 'policy.premiumMode':
       if (isIllustrationPremiumMode(value)) extract.policy.premiumMode = value;
+      break;
+    case 'policy.illustratedRate':
+      if (typeof value === 'number') extract.policy.illustratedRate = value;
       break;
     case 'policy.payYears':
       if (typeof value === 'number') extract.policy.payYears = value;
@@ -836,6 +852,7 @@ const currencyFieldPaths = new Set<IllustrationFieldPath>([
 
 const numberFieldPaths = new Set<IllustrationFieldPath>([
   'client.age',
+  'policy.illustratedRate',
   'policy.payYears',
   'policy.termLength',
   'projections[].year',
@@ -866,6 +883,8 @@ function extractedScalarValue(extract: IllustrationExtract, fieldPath: Illustrat
       return extract.policy.monthlyPremium;
     case 'policy.premiumMode':
       return extract.policy.premiumMode;
+    case 'policy.illustratedRate':
+      return extract.policy.illustratedRate;
     case 'policy.payYears':
       return extract.policy.payYears;
     case 'policy.termLength':
@@ -913,6 +932,9 @@ function regexForFieldPath(fieldPath: IllustrationFieldPath, evidence?: Illustra
   }
   if (fieldPath === 'client.gender') return '(?<value>Female|Male|F|M)';
   if (fieldPath === 'policy.premiumMode') return '(?<value>Monthly|Annual|Quarterly|Month|Yearly)';
+  if (fieldPath === 'policy.illustratedRate') {
+    return 'Current Projections[\\s\\S]{0,180}?(?:Interest Rate\\s+\\d+(?:\\.\\d+)?%\\s+){2}Interest Rate\\s+(?<value>\\d+(?:\\.\\d+)?)\\s*%|(?:Illustrated Rates?|Interest Rate):?\\s*(\\d+(?:\\.\\d+)?)\\s*%';
+  }
   if (fieldPath === 'policy.payYears') return '(?<value>\\d{1,3})\\s*Pay';
   if (fieldPath === 'policy.termLength') return '(?<value>\\d{1,3})\\s*(?:Year|Yr|Term)';
   if (currencyFieldPaths.has(fieldPath)) {
@@ -926,6 +948,7 @@ function regexForFieldPath(fieldPath: IllustrationFieldPath, evidence?: Illustra
 
 function transformForFieldPath(fieldPath: IllustrationFieldPath, transformRules: JsonObject) {
   if (currencyFieldPaths.has(fieldPath)) return { ...transformRules, currency: true } as JsonObject;
+  if (fieldPath === 'policy.illustratedRate') return { ...transformRules, percent: true } as JsonObject;
   if (fieldPath === 'client.gender') return { ...transformRules, gender: true } as JsonObject;
   if (fieldPath === 'agent.phone') return { ...transformRules, phone: true } as JsonObject;
   return transformRules;
@@ -950,6 +973,9 @@ function fallbackLabelsForFieldPath(fieldPath: IllustrationFieldPath, evidence?:
     fieldPath === 'policy.monthlyPremium' ? 'Initial Monthly Premium:' : '',
     fieldPath === 'policy.monthlyPremium' ? 'Monthly Premium:' : '',
     fieldPath === 'policy.premiumMode' ? 'Initial Premium:' : '',
+    fieldPath === 'policy.illustratedRate' ? 'Illustrated Rate:' : '',
+    fieldPath === 'policy.illustratedRate' ? 'Interest Rate' : '',
+    fieldPath === 'policy.illustratedRate' ? 'Current Projections' : '',
     fieldPath === 'policy.payYears' ? 'Pay' : '',
     fieldPath === 'policy.termLength' ? 'Term' : '',
     fieldPath === 'agent.name' ? 'Prepared By' : '',
@@ -1036,6 +1062,7 @@ function buildProposal(
       faceAmount: optionalNumber(generated.policy.faceAmount),
       monthlyPremium: optionalNumber(generated.policy.monthlyPremium),
       premiumMode: isIllustrationPremiumMode(generated.policy.premiumMode) ? generated.policy.premiumMode : undefined,
+      illustratedRate: optionalNumber(generated.policy.illustratedRate),
       payYears: optionalNumber(generated.policy.payYears),
       termLength: optionalNumber(generated.policy.termLength),
     },

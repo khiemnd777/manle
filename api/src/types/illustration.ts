@@ -51,6 +51,7 @@ export type IllustrationFieldPath =
   | 'policy.faceAmount'
   | 'policy.monthlyPremium'
   | 'policy.premiumMode'
+  | 'policy.illustratedRate'
   | 'policy.payYears'
   | 'policy.termLength'
   | 'agent.name'
@@ -82,6 +83,7 @@ export type IllustrationPolicyExtract = {
   faceAmount?: number;
   monthlyPremium?: number;
   premiumMode?: IllustrationPremiumMode;
+  illustratedRate?: number;
   payYears?: number;
   termLength?: number;
 };
@@ -584,6 +586,7 @@ export function validateIllustrationExtract(value: unknown): IllustrationValidat
   } else {
     if (extract.policy.faceAmount != null) validatePositiveNumber(extract.policy.faceAmount, 'policy.faceAmount', issues);
     if (extract.policy.monthlyPremium != null) validatePositiveNumber(extract.policy.monthlyPremium, 'policy.monthlyPremium', issues);
+    if (extract.policy.illustratedRate != null) validatePositiveNumber(extract.policy.illustratedRate, 'policy.illustratedRate', issues);
     if (extract.policy.payYears != null) validatePositiveNumber(extract.policy.payYears, 'policy.payYears', issues);
     if (extract.policy.termLength != null) validatePositiveNumber(extract.policy.termLength, 'policy.termLength', issues);
     if (extract.policy.premiumMode != null && !isIllustrationPremiumMode(extract.policy.premiumMode)) {

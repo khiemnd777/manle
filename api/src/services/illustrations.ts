@@ -314,6 +314,15 @@ function iulFallbackFieldMapping(
       return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?:Premium:|Monthly Premium|Initial Monthly Premium(?: including all Riders)?):?\\s*(\\$?\\d[\\d,]*(?:\\.\\d+)?)|(\\$?\\d[\\d,]*(?:\\.\\d+)?)\\s+(?:Initial Monthly Premium|Monthly Premium)' }, evidence), { currency: true }, evidence);
     case 'policy.premiumMode':
       return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?:Premium Mode|Mode):?\\s*(?<value>Monthly|Annual|Quarterly)' }, evidence), {}, evidence);
+    case 'policy.illustratedRate':
+      return fieldMapping(
+        fieldPath,
+        selectorWithPageHint({
+          regex: 'Current Projections[\\s\\S]{0,180}?(?:Interest Rate\\s+\\d+(?:\\.\\d+)?%\\s+){2}Interest Rate\\s+(?<value>\\d+(?:\\.\\d+)?)\\s*%|(?:Illustrated Rates?|Interest Rate):?\\s*(\\d+(?:\\.\\d+)?)\\s*%',
+        }, evidence),
+        { percent: true },
+        evidence,
+      );
     case 'policy.payYears':
       return fieldMapping(fieldPath, selectorWithPageHint({ regex: '(?:Duration|Pay Years?):?\\s*(?<value>\\d{1,2})' }, evidence), {}, evidence);
     case 'agent.name':

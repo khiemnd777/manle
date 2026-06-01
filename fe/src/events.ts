@@ -14,7 +14,7 @@ export function bindAll() {
                'agentFirm','officeName','officePhone','officeWebsite',
                'termLength','termFaceAmount','termMonthlyPrem'];
   // Fields that, when manually changed, invalidate cached PDF values
-  const policyFields = new Set(['faceAmount','monthlyPrem','premYears','age','gender']);
+  const policyFields = new Set(['faceAmount','monthlyPrem','premYears','rate','age','gender']);
   ids.forEach(id => {
     const el = $(id);
     if (!el) return;
@@ -28,7 +28,7 @@ export function bindAll() {
       // If user manually edits a policy parameter, drop the PDF cache —
       // the cached values were calibrated to the original PDF inputs
       if (policyFields.has(id) && state.actualCSV) {
-        state.actualCSV = state.actualPVMap = state.actualDBMap = null;
+        state.actualCSV = state.actualPVMap = state.actualDBMap = state.actualYearMap = null;
       }
       render();
     };
@@ -108,7 +108,7 @@ export function bindAll() {
     formatCurrencyFields();
     refreshCustomDropdowns();
     // Drop any cached PDF projection values — we're starting fresh
-    state.actualCSV = state.actualPVMap = state.actualDBMap = null;
+    state.actualCSV = state.actualPVMap = state.actualDBMap = state.actualYearMap = null;
     state.ages = [42, 52, 62, 72];
     // Reset IUL upload zone visual state
     $('uploadZone').classList.remove('parsed');

@@ -71,6 +71,8 @@ Do not reorder this casually. Most "state did not restore", "editor lost value",
 - `state.currentTab`: `iul` or `term`.
 - `state.ages`: projected cash-value target ages.
 - `state.actualCSV`, `state.actualPVMap`, `state.actualDBMap`: PDF-derived IUL tabular overrides.
+- `state.actualYearMap`: PDF-derived projection year by age, used so rendered
+  milestone rows keep the PDF's original policy year.
 - `state.agents`: shared footer agent list for both cards.
 - `state.livingBenefitColumns`: per-product living benefit column/card IDs.
 
@@ -208,8 +210,10 @@ Frontend uses `VITE_API_BASE_URL` or `http://127.0.0.1:8787`.
 - A `succeeded` response may include `assets.carrierLogoUrl`; `src/pdf.ts`
   applies it to the active card header through `setHeaderLogo(..., allowLocked)`.
 - IUL projection rows populate `state.actualCSV`, `state.actualPVMap`,
-  `state.actualDBMap`, and `state.ages` so the right-side card renders
+  `state.actualDBMap`, `state.actualYearMap`, and `state.ages` so the right-side card renders
   extracted cash/death-benefit rows; Term uploads clear IUL projection cache.
+  The maps keep all extracted PDF rows, while `state.ages` is reduced to
+  policy-year milestones for long annual tables.
 - Blocked runtime statuses such as `no_published_profile`,
   `unsupported_profile`, `low_match_confidence`, `needs_review`, and
   `validation_failed` show upload-zone errors and do not overwrite form/card
@@ -266,7 +270,10 @@ IUL tabular rows:
 - `TABULAR DETAIL` pages grouped by y-coordinate.
 - Last three numeric values are interpreted as policy value, cash surrender value, death benefit.
 - Populates `state.actualPVMap`, `state.actualCSV`, `state.actualDBMap`.
-- Sets `rate` to `7.25` when exact tabular rows are found.
+- Keeps all extracted rows in the PDF-derived maps and renders milestone ages
+  for long annual tables.
+- Sets `rate` from mapped `policy.illustratedRate` when available; otherwise
+  preserves the user's selected rate.
 
 Upload zones:
 
