@@ -1,7 +1,7 @@
 import { ensurePdfJs } from './runtime';
 import { $, calcAge, formatCurrencyField, state } from './core';
 import { refreshCustomDropdowns } from './customDropdown';
-import { setHeaderLogo } from './headerEditor';
+import { setHeaderLogo, setHeaderTitle } from './headerEditor';
 import { formatPhone, render, renderAgeList, renderAgentList, setTab } from './render';
 
 /* ===================== PDF AUTO-FILL ===================== */
@@ -191,6 +191,14 @@ function productTabLabel(tab: ProductTab) {
   return tab === 'term' ? 'Term Life' : 'IUL';
 }
 
+function productHeaderTitle(productType: ProductTab, productName: string) {
+  const name = productName.replace(/\s+/g, ' ').trim();
+  if (!name) return '';
+  return productType === 'term'
+    ? `Term Life Insurance — ${name}`
+    : `INDEXED UNIVERSAL LIFE (IUL) — ${name}`;
+}
+
 function detectProductTypeFromText(text: string): ProductTab | null {
   const t = text.replace(/\s+/g, ' ');
   if (/Trendsetter|Level Term Period|Guaranteed Level Term|Term Life/i.test(t)) return 'term';
@@ -228,6 +236,7 @@ function runtimeExtractToAutofill(extract: any) {
 
   return {
     data: {
+      productName: extract?.productName,
       productType: extract?.productType,
       fullName: client.fullName,
       age: client.age,
@@ -701,6 +710,14 @@ export function applyExtracted(data: any, targetTab, sourceTab = targetTab) {
   if (productType) {
     setTab(productType);
     if (sourceTab !== productType) filled.push(`→ ${productTabLabel(productType)} tab`);
+  }
+
+  if (data.productName && productType) {
+    const productName = productHeaderTitle(productType, String(data.productName));
+    if (productName) {
+      setHeaderTitle(productType, productName, { save: false, allowLocked: true });
+      filled.push('Product Name');
+    }
   }
 
   if (data.agentName || data.agentPhone) {

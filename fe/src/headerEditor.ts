@@ -7,6 +7,8 @@ type ProductTab = 'iul' | 'term';
 type HeaderState = {
   title?: string;
   logo?: string;
+  officialProductTitle?: boolean;
+  officialCarrierLogo?: boolean;
 };
 
 const CONFIG: Record<ProductTab, {
@@ -117,9 +119,13 @@ function canEditHeader() {
 }
 
 function captureProductHeader(product: ProductTab): HeaderState {
+  const title = titleFor(product);
+  const logo = logoFor(product);
   return {
-    title: titleFor(product)?.innerHTML || '',
-    logo: logoFor(product)?.getAttribute('src') || logoFor(product)?.src || '',
+    title: title?.innerHTML || '',
+    logo: logo?.getAttribute('src') || logo?.src || '',
+    officialProductTitle: title?.dataset.officialProductTitle === 'true',
+    officialCarrierLogo: logo?.dataset.officialCarrierLogo === 'true',
   };
 }
 
@@ -140,6 +146,7 @@ function restoreProductDefault(product: ProductTab, options: { save?: boolean } 
   const preview = logoPreviewFor(product);
 
   if (title) title.innerHTML = defaults.title || '';
+  if (title) delete title.dataset.officialProductTitle;
   if (title && titleInput) titleInput.value = textFromTitle(title);
   if (logo && defaults.logo) logo.src = defaults.logo;
   if (logo) delete logo.dataset.officialCarrierLogo;
@@ -162,6 +169,7 @@ function syncHeaderLockState() {
   (['iul', 'term'] as ProductTab[]).forEach(product => {
     const title = titleFor(product);
     const logoPill = logoPillFor(product);
+    const logo = logoFor(product);
     if (title) {
       title.contentEditable = editable ? 'true' : 'false';
       title.classList.toggle('entitlement-locked', !editable);
@@ -170,8 +178,21 @@ function syncHeaderLockState() {
       logoPill.classList.toggle('entitlement-locked', !editable);
       logoPill.title = editable ? 'Click để đổi logo' : 'Upgrade tier to unlock logo editing';
     }
-    if (entitlementsLoaded() && !editable && logoFor(product)?.dataset.officialCarrierLogo !== 'true') {
-      restoreProductDefault(product, { save: false });
+    if (entitlementsLoaded() && !editable) {
+      const defaults = defaultHeaderState[product];
+      const titleIsOfficial = title?.dataset.officialProductTitle === 'true';
+      const logoIsOfficial = logo?.dataset.officialCarrierLogo === 'true';
+      if (defaults && title && !titleIsOfficial) {
+        title.innerHTML = defaults.title || '';
+        const input = titleInputFor(product);
+        if (input) input.value = textFromTitle(title);
+      }
+      if (defaults && logo && !logoIsOfficial) {
+        logo.src = defaults.logo || '';
+        delete logo.dataset.officialCarrierLogo;
+        const preview = logoPreviewFor(product);
+        if (preview && defaults.logo) preview.src = defaults.logo;
+      }
     }
   });
   footerLogoImages().forEach(logo => {
@@ -207,6 +228,11 @@ export function setHeaderTitle(product: ProductTab, value: string, options: { sa
   if (!title) return;
 
   title.innerHTML = htmlFromTitleText(value);
+  if (options.allowLocked) {
+    title.dataset.officialProductTitle = 'true';
+  } else {
+    delete title.dataset.officialProductTitle;
+  }
   if (input && input.value !== value) input.value = value;
   if (options.save ?? true) scheduleSaveCallback();
 }
@@ -215,6 +241,7 @@ function syncEditorTitleFromPreview(product: ProductTab) {
   const title = titleFor(product);
   const input = titleInputFor(product);
   if (!title || !input) return;
+  delete title.dataset.officialProductTitle;
   input.value = textFromTitle(title);
   scheduleSaveCallback();
 }
@@ -431,7 +458,14 @@ export function bindHeaderEditor() {
 export function captureHeaderState() {
   const capture = (product: ProductTab): HeaderState => {
     if (entitlementsLoaded() && !canEditHeader()) {
-      return defaultHeaderState[product] || captureProductHeader(product);
+      const defaults = defaultHeaderState[product] || captureProductHeader(product);
+      const current = captureProductHeader(product);
+      return {
+        title: current.officialProductTitle ? current.title : defaults.title,
+        logo: current.officialCarrierLogo ? current.logo : defaults.logo,
+        officialProductTitle: current.officialProductTitle,
+        officialCarrierLogo: current.officialCarrierLogo,
+      };
     }
     return captureProductHeader(product);
   };
@@ -447,18 +481,30 @@ export function captureHeaderState() {
 
 export function restoreHeaderState(data: any) {
   if (!data || typeof data !== 'object') return;
-  if (entitlementsLoaded() && !canEditHeader()) {
-    resetHeaderCustomizations({ save: false });
-    return;
-  }
   if (data.footerLogo) setFooterLogo(data.footerLogo, { save: false });
 
   (['iul', 'term'] as ProductTab[]).forEach(product => {
     const item = data[product];
     if (!item || typeof item !== 'object') return;
+    const locked = entitlementsLoaded() && !canEditHeader();
+    if (locked && !item.officialProductTitle && !item.officialCarrierLogo) {
+      restoreProductDefault(product, { save: false });
+      return;
+    }
 
     const title = titleFor(product);
-    if (title && item.title) title.innerHTML = item.title;
-    if (item.logo) setHeaderLogo(product, item.logo, { save: false });
+    if (title && item.title && (!locked || item.officialProductTitle)) {
+      title.innerHTML = item.title;
+      if (item.officialProductTitle) {
+        title.dataset.officialProductTitle = 'true';
+      } else {
+        delete title.dataset.officialProductTitle;
+      }
+      const input = titleInputFor(product);
+      if (input) input.value = textFromTitle(title);
+    }
+    if (item.logo && (!locked || item.officialCarrierLogo)) {
+      setHeaderLogo(product, item.logo, { save: false, allowLocked: Boolean(item.officialCarrierLogo) });
+    }
   });
 }
