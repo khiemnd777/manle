@@ -112,7 +112,7 @@ export async function exportCardImage(format: ExportFormat) {
     cleanupEntitlementCapture = enforceExportEntitlements(authorization);
   } catch (err) {
     card.classList.remove('exporting');
-    btn.textContent = origLabel;
+    btn.innerHTML = origLabel;
     btn.disabled = false;
     void showErrorDialog(err, 'Không thể export file');
     return;
