@@ -1,5 +1,5 @@
 const WATERMARK_TEXT = 'MANLE.INFO';
-const WATERMARK_TILE_COUNT = 24;
+const WATERMARK_TILE_COUNT = 10;
 
 function showProtectionToast(message: string) {
   let toast = document.querySelector('.protection-toast') as HTMLElement | null;

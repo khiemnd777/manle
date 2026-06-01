@@ -4,13 +4,25 @@ import { showAppDialog, showErrorDialog } from './dialog';
 import { resetHeaderCustomizations, syncHeaderEntitlementState } from './headerEditor';
 import { sanitizeLivingBenefitEditorForExport } from './livingBenefitColumns';
 import { repairAllLivingBenefitFormats } from './livingBenefitFormat';
+import { muiIconSvg } from './muiIcons';
 import { enforceWatermarkForCapture } from './protection';
 import { applyStyles } from './styleEditor';
+
+type ExportFormat = 'pdf' | 'png' | 'jpg';
 
 type ExportRuntime = {
   html2canvas: typeof import('html2canvas').default;
   jsPDF: typeof import('jspdf').jsPDF;
 };
+
+const CAPTURE_SCALE_BY_FORMAT: Record<ExportFormat, number> = {
+  pdf: 5,
+  png: 3,
+  jpg: 3,
+};
+
+const JPG_EXPORT_QUALITY = 0.9;
+const PDF_IMAGE_QUALITY = 0.95;
 
 let exportRuntimePromise: Promise<ExportRuntime> | null = null;
 
@@ -45,6 +57,29 @@ function enforceExportEntitlements(authorization: ExportAuthorization) {
   return cleanupWatermark;
 }
 
+function canvasToBlob(canvas: HTMLCanvasElement, mime: string, quality?: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+      reject(new Error('Unable to create export image.'));
+    }, mime, quality);
+  });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /* ===================== IMAGE / PDF EXPORT =====================
    - PDF mode: render card to canvas via html2canvas, embed into a
      letter-sized jsPDF document, fit to page with margins.
@@ -52,7 +87,7 @@ function enforceExportEntitlements(authorization: ExportAuthorization) {
    PDF is used by agents emailing cards to clients — looks more
    professional and prints cleanly across email clients.
    =============================================================== */
-export async function exportCardImage(format) {
+export async function exportCardImage(format: ExportFormat) {
   // Pick whichever card is currently visible — the inactive one is hidden via CSS
   repairAllLivingBenefitFormats();
   const cardId = state.currentTab === 'term' ? 'cardOutTerm' : 'cardOut';
@@ -64,11 +99,11 @@ export async function exportCardImage(format) {
   card.classList.add('exporting');
 
   // Show busy state on the trigger button
-  const btnIdMap = { pdf: 'printBtn', jpg: 'jpgBtn', png: 'pngBtn' };
-  const btnId = btnIdMap[format] || 'pngBtn';
+  const btnIdMap: Record<ExportFormat, string> = { pdf: 'printBtn', jpg: 'jpgBtn', png: 'pngBtn' };
+  const btnId = btnIdMap[format];
   const btn = $(btnId);
-  const origLabel = btn.textContent;
-  btn.textContent = '⏳ Đang tạo...';
+  const origLabel = btn.innerHTML;
+  btn.innerHTML = `${muiIconSvg('HourglassEmpty')} Đang tạo...`;
   btn.disabled = true;
   let cleanupEntitlementCapture = () => {};
 
@@ -123,7 +158,7 @@ export async function exportCardImage(format) {
 
     const canvas = await html2canvas(card, {
       backgroundColor: '#f5f6f8',
-      scale: 5,
+      scale: CAPTURE_SCALE_BY_FORMAT[format],
       useCORS: true,
       allowTaint: true,
       logging: false,
@@ -158,7 +193,7 @@ export async function exportCardImage(format) {
       // PDF export — embed the rendered canvas into a letter-sized PDF.
       // Using JPEG inside the PDF keeps file size reasonable for email attachment.
       const filename = `manle_iul_${safe}.pdf`;
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const imgData = canvas.toDataURL('image/jpeg', PDF_IMAGE_QUALITY);
 
       // Letter size in inches (8.5 x 11). Choose orientation by canvas aspect ratio.
       const aspect = canvas.height / canvas.width; // tall → portrait
@@ -187,31 +222,23 @@ export async function exportCardImage(format) {
     } else {
       const mime    = format === 'jpg' ? 'image/jpeg' : 'image/png';
       const ext     = format === 'jpg' ? 'jpg' : 'png';
-      const quality = format === 'jpg' ? 1.0 : undefined;
+      const quality = format === 'jpg' ? JPG_EXPORT_QUALITY : undefined;
       const filename = `manle_iul_${safe}.${ext}`;
 
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          void showAppDialog({
-            title: 'Tạo file thất bại',
-            message: 'Vui lòng thử lại.',
-            variant: 'danger',
-          });
-          return;
-        }
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }, mime, quality);
+      const blob = await canvasToBlob(canvas, mime, quality);
+      downloadBlob(blob, filename);
     }
   } catch (err) {
     console.error('Export failed:', err);
-    void showErrorDialog(err, 'Lỗi khi tạo file');
+    if (err instanceof Error && err.message === 'Unable to create export image.') {
+      void showAppDialog({
+        title: 'Tạo file thất bại',
+        message: 'Vui lòng thử lại.',
+        variant: 'danger',
+      });
+    } else {
+      void showErrorDialog(err, 'Lỗi khi tạo file');
+    }
   } finally {
     // Restore original inline styles
     allCardEls.forEach((el, i) => {
@@ -229,7 +256,7 @@ export async function exportCardImage(format) {
     });
     card.classList.remove('exporting');
     cleanupEntitlementCapture();
-    btn.textContent = origLabel;
+    btn.innerHTML = origLabel;
     btn.disabled = false;
   }
 }
