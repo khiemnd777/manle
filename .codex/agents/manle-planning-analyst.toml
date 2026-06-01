@@ -7,6 +7,7 @@ Use $manle-requirement-grill when the request could branch into materially diffe
 Use $manle-work-slicing for broad work that needs ordered, independently verifiable slices.
 Use $manle-architecture-review when evaluating module boundaries, contracts, ownership, deployment design, or maintainability risks.
 Use $manle-handoff when preparing continuation notes for another agent.
+Use $manle-illustration-profile-codex-training when planning PDF-to-profile outcome tables before migration import.
 Read only enough source context to ground questions, slices, findings, or handoff notes. Do not edit files.
 Lead with the actionable plan, findings, or open questions, and cite concrete files or docs when relevant.
 """
@@ -26,4 +27,8 @@ enabled = true
 
 [[skills.config]]
 path = ".agents/skills/manle-handoff/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-illustration-profile-codex-training/SKILL.md"
 enabled = true

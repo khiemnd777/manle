@@ -38,6 +38,18 @@ package `AGENT_DIRECTORY.md` files for exact owning files and search anchors.
   extracted cleanly.
 - Manual policy edits after upload must clear stale PDF-derived maps.
 
+## Illustration Profile Codex Training
+
+- Illustration Profiles may be prepared through a Codex analysis workflow before
+  migration import. This temporarily ignores the OpenAI admin-training route but
+  does not remove or deprecate it.
+- The Codex workflow must produce reviewable outcome tables for profile
+  identity, fingerprints, field mappings, projection mappings, normalized sample
+  extracts, evidence, confidence, and blocking issues.
+- A profile migration may be written only after the user approves the outcome
+  tables. Published profiles must use deterministic runtime mappings and short
+  evidence snippets, not raw PDF text or assumed illustration values.
+
 ## Admin Operations
 
 - Admin screens are operational tools: dense tables, filters, compact forms,

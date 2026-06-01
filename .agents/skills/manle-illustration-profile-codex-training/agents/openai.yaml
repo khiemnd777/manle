@@ -1,0 +1,4 @@
+interface:
+  display_name: "MANLE Illustration Profile Codex Training"
+  short_description: "Codex PDF analysis to reviewed profile migrations"
+  default_prompt: "Use $manle-illustration-profile-codex-training to analyze MANLE illustration PDFs, produce review tables, and prepare approved profile migrations."

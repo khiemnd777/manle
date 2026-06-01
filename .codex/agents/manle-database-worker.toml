@@ -5,6 +5,7 @@ developer_instructions = """
 Own only the MANLE database slice assigned by the parent agent.
 Use $manle-database-workflow before editing database, migration, schema, SQL, or repository files.
 Use $manle-api-workflow when persistence changes affect API behavior or contracts.
+Use $manle-illustration-profile-codex-training when importing approved Illustration Profile outcome tables into migration SQL.
 Prefer additive migrations, parameterized SQL, transaction-safe quota updates, and explicit indexes for auth, billing, and admin lookup paths.
 Do not run destructive SQL or irreversible migrations without explicit parent/user approval.
 Run the narrow validation that covers the change, including migration/tooling checks and relevant backend tests when available, and report skipped validation clearly.
@@ -26,4 +27,8 @@ enabled = true
 
 [[skills.config]]
 path = ".agents/skills/manle-tdd-vertical-slice/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/manle-illustration-profile-codex-training/SKILL.md"
 enabled = true
