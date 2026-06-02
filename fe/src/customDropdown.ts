@@ -27,6 +27,7 @@ function closeOtherDropdowns(activeRoot?: HTMLElement) {
 function syncCustomDropdown(select: CustomSelectElement) {
   const ddl = select._customDDL;
   if (!ddl) return;
+  syncCustomDropdownOptions(select);
   ddl.valueEl.textContent = getOptionLabel(select);
   ddl.menu.querySelectorAll<HTMLElement>('.custom-ddl-option').forEach(item => {
     const selected = item.dataset.value === select.value;
@@ -44,6 +45,47 @@ function selectOption(select: CustomSelectElement, value: string) {
   syncCustomDropdown(select);
   select.dispatchEvent(new Event('input', { bubbles: true }));
   select.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function appendDropdownOption(select: CustomSelectElement, option: HTMLOptionElement) {
+  const ddl = select._customDDL;
+  if (!ddl) return;
+
+  const item = document.createElement('button');
+  item.type = 'button';
+  item.className = 'custom-ddl-option';
+  item.dataset.value = option.value;
+  item.textContent = option.textContent || option.value;
+  item.setAttribute('role', 'option');
+  if (option.disabled) item.disabled = true;
+  item.addEventListener('click', () => {
+    selectOption(select, option.value);
+    closeDropdown(ddl.root);
+    ddl.trigger.focus();
+  });
+  ddl.menu.appendChild(item);
+}
+
+function syncCustomDropdownOptions(select: CustomSelectElement) {
+  const ddl = select._customDDL;
+  if (!ddl) return;
+
+  const liveValues = new Set<string>();
+  Array.from(select.options).forEach(option => {
+    liveValues.add(option.value);
+    const item = Array.from(ddl.menu.querySelectorAll<HTMLButtonElement>('.custom-ddl-option'))
+      .find(candidate => candidate.dataset.value === option.value);
+    if (!item) {
+      appendDropdownOption(select, option);
+      return;
+    }
+    item.textContent = option.textContent || option.value;
+    item.disabled = option.disabled;
+  });
+
+  ddl.menu.querySelectorAll<HTMLButtonElement>('.custom-ddl-option').forEach(item => {
+    if (!liveValues.has(item.dataset.value || '')) item.remove();
+  });
 }
 
 function moveSelection(select: CustomSelectElement, dir: number) {
@@ -84,22 +126,6 @@ function buildCustomDropdown(select: CustomSelectElement) {
   menu.className = 'custom-ddl-menu';
   menu.setAttribute('role', 'listbox');
 
-  Array.from(select.options).forEach(option => {
-    const item = document.createElement('button');
-    item.type = 'button';
-    item.className = 'custom-ddl-option';
-    item.dataset.value = option.value;
-    item.textContent = option.textContent || option.value;
-    item.setAttribute('role', 'option');
-    if (option.disabled) item.disabled = true;
-    item.addEventListener('click', () => {
-      selectOption(select, option.value);
-      closeDropdown(root);
-      trigger.focus();
-    });
-    menu.appendChild(item);
-  });
-
   trigger.addEventListener('click', () => {
     const nextOpen = !root.classList.contains('is-open');
     closeOtherDropdowns(root);
@@ -133,7 +159,29 @@ function buildCustomDropdown(select: CustomSelectElement) {
   root.append(trigger, menu);
   select.after(root);
   select._customDDL = { root, trigger, valueEl, menu };
+  syncCustomDropdownOptions(select);
   syncCustomDropdown(select);
+}
+
+function normalizeOptionLookup(value: string) {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+export function ensureCustomSelectOption(select: HTMLSelectElement | null | undefined, value: string, label = value) {
+  const cleanValue = value.replace(/\s+/g, ' ').trim();
+  if (!select || !cleanValue) return '';
+
+  const existing = Array.from(select.options).find(option =>
+    normalizeOptionLookup(option.value) === normalizeOptionLookup(cleanValue),
+  );
+  if (existing) return existing.value;
+
+  const option = document.createElement('option');
+  option.value = cleanValue;
+  option.textContent = (label || cleanValue).replace(/\s+/g, ' ').trim();
+  select.appendChild(option);
+  syncCustomDropdown(select as CustomSelectElement);
+  return option.value;
 }
 
 let isBound = false;
@@ -152,4 +200,3 @@ export function bindCustomDropdowns() {
 export function refreshCustomDropdowns() {
   document.querySelectorAll<CustomSelectElement>('select').forEach(syncCustomDropdown);
 }
-

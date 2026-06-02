@@ -1,6 +1,6 @@
 import { ensurePdfJs } from './runtime';
 import { $, calcAge, formatCurrencyField, state } from './core';
-import { refreshCustomDropdowns } from './customDropdown';
+import { ensureCustomSelectOption, refreshCustomDropdowns } from './customDropdown';
 import { setHeaderLogo, setHeaderTitle } from './headerEditor';
 import { formatPhone, render, renderAgeList, renderAgentList, setTab } from './render';
 
@@ -18,6 +18,14 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 type ProductTab = 'iul' | 'term';
+const KNOWN_RISK_CLASSES = [
+  'Preferred Plus',
+  'Preferred Elite',
+  'Preferred',
+  'Standard Plus',
+  'Standard',
+  'Select Non-Tobacco',
+];
 
 // Full state name → 2-letter code
 const STATE_MAP = {
@@ -45,6 +53,41 @@ export function normalizeState(raw) {
     if (s.startsWith(k.slice(0, 4))) return STATE_MAP[k];
   }
   return raw.toUpperCase().slice(0, 2);
+}
+
+function riskClassLookup(value: unknown) {
+  return String(value == null ? '' : value)
+    .toLowerCase()
+    .replace(/\bnontobacco\b/g, 'non tobacco')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function normalizeRiskClass(raw: unknown) {
+  const clean = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  const lookup = riskClassLookup(clean);
+  const known = KNOWN_RISK_CLASSES.find(item => riskClassLookup(item) === lookup);
+  if (known) return known;
+  return clean
+    .replace(/\bnontobacco\b/ig, 'Non-Tobacco')
+    .replace(/\bnon\s+tobacco\b/ig, 'Non-Tobacco')
+    .replace(/\s*-\s*/g, '-');
+}
+
+function setRiskClassValue(raw: unknown) {
+  const riskClass = normalizeRiskClass(raw);
+  if (!riskClass) return false;
+
+  const sel = $('riskClass') as HTMLSelectElement | null;
+  if (!sel) return false;
+  const existing = Array.from(sel.options).find(option =>
+    riskClassLookup(option.value || option.textContent) === riskClassLookup(riskClass),
+  );
+  const value = existing?.value || ensureCustomSelectOption(sel, riskClass);
+  if (!value) return false;
+  sel.value = value;
+  return sel.value === value;
 }
 
 // Parse filename for quick fields, e.g.:
@@ -119,6 +162,7 @@ export function parseFilename(filename) {
 
   // Risk class
   for (const t of tokens) {
+    if (/select\s+non[-\s]*tobacco/i.test(t)) { out.riskClass = 'Select Non-Tobacco'; break; }
     if (/preferred\s*elite/i.test(t))  { out.riskClass = 'Preferred Elite'; break; }
     if (/preferred\s*plus/i.test(t))   { out.riskClass = 'Preferred Plus'; break; }
     if (/standard\s*plus/i.test(t))    { out.riskClass = 'Standard Plus'; break; }
@@ -479,10 +523,10 @@ export function parsePdfText(text) {
   if (m) out.state = normalizeState(m[1]);
 
   // Risk Class
-  m = t.match(/Risk Class:?\s*((?:Preferred|Standard)(?:\s+(?:Plus|Elite))?)/i);
+  m = t.match(/(?:Male|Female)\s+\d{1,3}\s+(Select\s+Non[-\s]*Tobacco)\s+State:/i);
+  if (!m) m = t.match(/Risk Class:?\s*((?:Preferred|Standard)(?:\s+(?:Plus|Elite))?|Select\s+Non[-\s]*Tobacco)/i);
   if (m) {
-    const w = m[1].trim().split(/\s+/);
-    out.riskClass = w.map(x => x[0].toUpperCase() + x.slice(1).toLowerCase()).join(' ');
+    out.riskClass = normalizeRiskClass(m[1]);
   }
 
   // ---- Policy Design ----
@@ -654,15 +698,7 @@ export function applyExtracted(data: any, targetTab, sourceTab = targetTab) {
   }
 
   if (data.riskClass) {
-    // Try to match the dropdown option
-    const sel = $('riskClass');
-    for (const opt of sel.options) {
-      if (opt.value.toLowerCase() === data.riskClass.toLowerCase()) {
-        sel.value = opt.value;
-        filled.push('Risk Class');
-        break;
-      }
-    }
+    if (setRiskClassValue(data.riskClass)) filled.push('Risk Class');
   }
 
   if (data.face) {

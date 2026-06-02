@@ -1,4 +1,5 @@
 import { $, formatCurrencyFields, state } from './core';
+import { ensureCustomSelectOption } from './customDropdown';
 import { captureHeaderState, restoreHeaderState } from './headerEditor';
 import { ensureLivingBenefitCardsFromColumns, setLivingBenefitIcon } from './livingBenefitColumns';
 import { repairAllLivingBenefitFormats } from './livingBenefitFormat';
@@ -164,6 +165,7 @@ export function loadState() {
     // Restore form fields
     for (const [k, v] of Object.entries(data.form)) {
       const el = $(k);
+      if (k === 'riskClass' && typeof v === 'string') ensureCustomSelectOption(el, v);
       if (el && v != null) el.value = v;
     }
     formatCurrencyFields();
