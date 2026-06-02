@@ -2499,9 +2499,14 @@
   }
   /* Hide all editing cues during export so they don't appear in PNG/JPG/PDF */
   .card.exporting [contenteditable="true"] {
-    background: transparent !important;
     box-shadow: none !important;
     outline: none !important;
+  }
+  .card.exporting [contenteditable="true"]:not(.benefit1-box) {
+    background: transparent !important;
+  }
+  .card.exporting .benefit1-box[contenteditable="true"] {
+    background: var(--teal) !important;
   }
 
   /* ===== EXPORT BUTTON ROW ===== */
