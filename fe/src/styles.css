@@ -56,6 +56,11 @@
   .route-generator .profile-page {
     display: none !important;
   }
+  .route-generator #card-generator.section-reveal {
+    opacity: 1;
+    transform: none;
+    clip-path: none;
+  }
   .section-reveal {
     opacity: 0;
     transform: translateY(42px) scale(.965);
