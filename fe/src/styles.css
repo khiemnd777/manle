@@ -2220,6 +2220,13 @@
     width: 14px;
     height: 14px;
   }
+  .download-disclaimer {
+    margin: 10px 0 0;
+    color: #a39bc8;
+    font-size: 11px;
+    line-height: 1.5;
+    font-style: italic;
+  }
 
   .inline-add-btn {
     background: transparent;
