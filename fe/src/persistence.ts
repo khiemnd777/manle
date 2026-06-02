@@ -107,6 +107,8 @@ export function saveState(options: { repair?: boolean } = {}) {
         premYears:        $('premYears').value,
         rate:             $('rate').value,
         dragTune:         $('dragTune').value,
+        iulProductName:   $('iulProductName')?.value,
+        termProductName:  $('termProductName')?.value,
         agentFirm:        $('agentFirm').value,
         officeName:       $('officeName')?.value,
         officePhone:      $('officePhone')?.value,

@@ -410,6 +410,12 @@ Trendsetter® LB</textarea>
     <fieldset>
       <legend>Policy / Hợp đồng</legend>
       <!-- IUL fields -->
+      <div class="row full iul-only">
+        <div>
+          <label for="iulProductName">Product — IUL</label>
+          <input type="text" id="iulProductName" value="Transamerica FFIUL® II" placeholder="VD: Transamerica FFIUL® II">
+        </div>
+      </div>
       <div class="row iul-only">
         <div>
           <label for="faceAmount">Face Amount — IUL ($)</label>
@@ -431,6 +437,12 @@ Trendsetter® LB</textarea>
         </div>
       </div>
       <!-- Term Life fields (riêng biệt, không ảnh hưởng IUL) -->
+      <div class="row full term-only">
+        <div>
+          <label for="termProductName">Product — Term Life</label>
+          <input type="text" id="termProductName" value="Transamerica Trendsetter® LB" placeholder="VD: Transamerica Trendsetter® LB">
+        </div>
+      </div>
       <div class="row term-only">
         <div>
           <label for="termFaceAmount">Face Amount — Term ($)</label>
@@ -932,7 +944,7 @@ Trendsetter® LB</textarea>
         <!-- Dòng 2: Disclaimer -->
         <div class="footer-disc-row">
           <div class="agent-disc" id="ftDisc">
-            IUL Policy Illustration for: <strong id="ftClient">An D. Nguyen</strong> — Transamerica FFIUL® II | <span id="ftDate">May 4, 2026</span>.
+            IUL Policy Illustration for: <strong id="ftClient">An D. Nguyen</strong><span id="ftProductSep"> — </span><span id="ftProduct">Transamerica FFIUL® II</span> | <span id="ftDate">May 4th, 2026</span>.
           </div>
         </div>
       </footer>
@@ -1093,7 +1105,7 @@ Trendsetter® LB</textarea>
         </div>
         <div class="footer-disc-row">
           <div class="agent-disc" id="t_ftDisc">
-            Term Life Insurance for: <strong id="t_ftClient">Term Client</strong> — Transamerica Trendsetter® LB | <span id="t_ftDate">May 4, 2026</span>.
+            Term Life Illustration Summary for: <strong id="t_ftClient">Term Client</strong><span id="t_ftProductSep"> — </span><span id="t_ftProduct">Transamerica Trendsetter® LB</span> | <span id="t_ftDate">May 4th, 2026</span>.
           </div>
         </div>
       </footer>

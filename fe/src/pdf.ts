@@ -243,6 +243,10 @@ function productHeaderTitle(productType: ProductTab, productName: string) {
     : `INDEXED UNIVERSAL LIFE (IUL) — ${name}`;
 }
 
+function productInputId(productType: ProductTab) {
+  return productType === 'term' ? 'termProductName' : 'iulProductName';
+}
+
 function detectProductTypeFromText(text: string): ProductTab | null {
   const t = text.replace(/\s+/g, ' ');
   if (/Trendsetter|Level Term Period|Guaranteed Level Term|Term Life/i.test(t)) return 'term';
@@ -749,10 +753,13 @@ export function applyExtracted(data: any, targetTab, sourceTab = targetTab) {
   }
 
   if (data.productName && productType) {
-    const productName = productHeaderTitle(productType, String(data.productName));
+    const extractedProduct = String(data.productName).replace(/\s+/g, ' ').trim();
+    const productInput = $(productInputId(productType));
+    if (productInput && extractedProduct) productInput.value = extractedProduct;
+    const productName = productHeaderTitle(productType, extractedProduct);
     if (productName) {
       setHeaderTitle(productType, productName, { save: false, allowLocked: true });
-      filled.push('Product Name');
+      filled.push('Product');
     }
   }
 

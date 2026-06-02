@@ -11,6 +11,7 @@ import { formatPhone, render, renderAgeList, renderAgentList, setTab } from './r
 export function bindAll() {
   const ids = ['firstName','lastName','age','gender','state','riskClass',
                'faceAmount','monthlyPrem','premYears','rate','dragTune',
+               'iulProductName','termProductName',
                'agentFirm','officeName','officePhone','officeWebsite',
                'termLength','termFaceAmount','termMonthlyPrem'];
   // Fields that, when manually changed, invalidate cached PDF values
@@ -102,7 +103,9 @@ export function bindAll() {
     $('faceAmount').value  = 500000;
     $('monthlyPrem').value = 300;
     $('premYears').value   = 20;
+    if ($('iulProductName'))  $('iulProductName').value = 'Transamerica FFIUL® II';
     if ($('termLength'))      $('termLength').value = 30;
+    if ($('termProductName')) $('termProductName').value = 'Transamerica Trendsetter® LB';
     if ($('termFaceAmount'))  $('termFaceAmount').value = 500000;
     if ($('termMonthlyPrem')) $('termMonthlyPrem').value = 300;
     formatCurrencyFields();

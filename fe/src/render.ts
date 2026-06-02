@@ -5,6 +5,33 @@ export function setRenderSaveScheduler(fn: () => void) {
   scheduleSaveCallback = fn;
 }
 
+function ordinalSuffix(day: number) {
+  const mod100 = day % 100;
+  if (mod100 >= 11 && mod100 <= 13) return 'th';
+  switch (day % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
+}
+
+function formatFooterDate(date = new Date()) {
+  const month = date.toLocaleString('en-US', { month: 'long' });
+  const day = date.getDate();
+  return `${month} ${day}${ordinalSuffix(day)}, ${date.getFullYear()}`;
+}
+
+function setFooterProduct(productId: string, sepId: string, productName: string) {
+  const product = $(productId);
+  const sep = $(sepId);
+  if (!product || !sep) return;
+  const value = productName.trim();
+  product.textContent = value;
+  product.hidden = !value;
+  sep.hidden = !value;
+}
+
 /* ===================== AGE LIST (sidebar) ===================== */
 export function renderAgeList() {
   const wrap = $('ageList');
@@ -234,10 +261,11 @@ export function render() {
     ftList.appendChild(block);
   });
   $('ftClient').textContent = fullName;
+  setFooterProduct('ftProduct', 'ftProductSep', $('iulProductName')?.value || '');
   renderOfficeContact();
 
   const today = new Date();
-  $('ftDate').textContent = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  $('ftDate').textContent = formatFooterDate(today);
 
   // Mirror the same data into the Term Life card so it stays in sync
   // even when the user is on the IUL tab. Switching tabs is then instant
@@ -317,10 +345,11 @@ export function renderTerm() {
     ftList.appendChild(block);
   });
   $('t_ftClient').textContent = fullName;
+  setFooterProduct('t_ftProduct', 't_ftProductSep', $('termProductName')?.value || '');
   renderOfficeContact('t_');
 
   const today = new Date();
-  $('t_ftDate').textContent = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  $('t_ftDate').textContent = formatFooterDate(today);
 }
 
 /* ===================== TAB SWITCHING =====================
